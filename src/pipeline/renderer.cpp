@@ -25,7 +25,7 @@ struct sDrawCommand {
 };
 
 std::vector<sDrawCommand> draw_command_list;
-
+std::vector<SCN::LightEntity*> light_list;
 
 using namespace SCN;
 
@@ -90,8 +90,12 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 
 		////CODI PROFE
 		if (entity->getType() == eEntityType::PREFAB) {
-			//	WRONG -> PrefabEntity* prefab_entt = (PrefabEntity*)entity;
-			//    WRONG -> Prefab* prefab = prefab_entt->prefab;
+			PrefabEntity* prefab_ent = (PrefabEntity*)entity;
+			parseNodes(&prefab_ent->root, cam);
+		}
+		else if (entity->getType() == eEntityType::LIGHT) {
+			light_list.push_back((LightEntity*)entity);
+		}
 
 // a void parseNodes
 //sDrawCommand draw_com;
@@ -103,9 +107,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 
 //			WRONG:	parseNodes(&prefab->root, )
 	//parseNodes(((PrefabEntity*)entity)->root, camera);
-			PrefabEntity* prefab_ent = (PrefabEntity*)entity;
-			parseNodes(&prefab_ent->root, cam);
-		}
+			
 
 		// Store Prefab Entitys
 		// ...
@@ -211,6 +213,34 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	shader->enable();
 
 	material->bind(shader);
+
+	////CODI PROFE
+	//sending the lights
+	vec3* light_positions = new vec3[light_list.size()];
+	vec3* light_colors = new vec3[light_list.size()];
+	float* light_intensity = new float[light_list.size()];
+	vec3* light_direction = new vec3[light_list.size()];
+
+	// ...
+	int i = 0;
+	for (LightEntity* light : light_list) {
+		light_positions[i] = light->root.getGlobalMatrix().getTranslation();
+		light_colors[i] = light->color;
+		light_intensity[i] = light->intensity;
+		light_direction[i] = light->root.model.frontVector();
+		i++;
+	}
+
+
+	shader->setUniform3Array("u_light_positions", (float*)light_positions, min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_colors", (float*)light_colors, min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_intensity", (float*)light_intensity, min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_direction", (float*)light_direction, min(light_list.size(), 10));
+
+	delete[] light_positions;
+	delete[] light_colors;
+	delete[] light_intensity;
+	delete[] light_direction;
 
 	//upload uniforms
 	shader->setUniform("u_model", model);

@@ -104,7 +104,7 @@ uniform float u_alpha_cutoff;
 //CODI PROFE
 uniform int light_types[10];
 uniform vec3 u_light_pos[10];
-uniform vec3 u_light_color[10];
+uniforma vec3 u_light_color[10];
 uniform float u_light_intensity[10];
 
 uniform vec3 u_light_dir[10];
