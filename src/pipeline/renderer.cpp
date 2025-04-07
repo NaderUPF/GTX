@@ -96,27 +96,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 		else if (entity->getType() == eEntityType::LIGHT) {
 			light_list.push_back((LightEntity*)entity);
 		}
-
-// a void parseNodes
-//sDrawCommand draw_com;
-//draw_com.mesh = prefab->root.mesh;
-//draw_com.material = prefab->root.material;
-//draw_com.model = prefab->root.getGlobalMatrix();
-
-//draw_command_list.push_back(draw_com);
-
-//			WRONG:	parseNodes(&prefab->root, )
-	//parseNodes(((PrefabEntity*)entity)->root, camera);
-			
-
-		// Store Prefab Entitys
-		// ...
-		//		Store Children Prefab Entities
-
-		// Store Lights
-		// ...
 	}
-
 }
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
@@ -231,10 +211,9 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		i++;
 	}
 
-
 	shader->setUniform3Array("u_light_positions", (float*)light_positions, min(light_list.size(), 10));
 	shader->setUniform3Array("u_light_colors", (float*)light_colors, min(light_list.size(), 10));
-	shader->setUniform3Array("u_light_intensity", (float*)light_intensity, min(light_list.size(), 10));
+	shader->setUniform1Array("u_light_intensity", (float*)light_intensity, min(light_list.size(), 10));
 	shader->setUniform3Array("u_light_direction", (float*)light_direction, min(light_list.size(), 10));
 
 	delete[] light_positions;

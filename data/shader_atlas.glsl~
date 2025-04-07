@@ -103,11 +103,11 @@ uniform float u_alpha_cutoff;
 
 //CODI PROFE
 uniform int light_types[10];
-uniform vec3 u_light_pos[10];
-uniforma vec3 u_light_color[10];
+uniform vec3 u_light_positions[10];
+uniform vec3 u_light_colors[10];
 uniform float u_light_intensity[10];
 
-uniform vec3 u_light_dir[10];
+uniform vec3 u_light_direction[10];
 
 out vec4 FragColor;
 
@@ -123,18 +123,18 @@ void main()
 	for(int i = 0; i < 3; i++) {
 		vec3 L; 
 			if (light_types[i] == 1) { // POINT
-				L = normalize(u_light_pos[i] - v_world_position);
+				L = normalize(u_light_positions[i] - v_world_position);
 			} else if (light_types[i] == 3) { // dir
-				L = normalize(u_light_dir[i]);
+				L = normalize(u_light_direction[i]);
 			}
 	
 		float l_dot_n = clamp(dot(L, normalize(v_normal)), 0.0, 1.0);
-		light_component += u_light_intensity[i] * u_light_color[i] * l_dot_n; // + specular
+		light_component += u_light_intensity[i] * u_light_colors[i] * l_dot_n; // + specular
 	}
 
-	vec3 L = normalize(u_light_dir[3]);
+	vec3 L = normalize(u_light_direction[3]);
 	float l_dot_n = clamp(dot(L, normalize(v_normal)), 0.0, 1.0);
-	light_component += u_light_intensity[3] * u_light_color[3] * l_dot_n; // + specular
+	light_component += u_light_intensity[3] * u_light_colors[3] * l_dot_n; // + specular
 
 	if(color.a < u_alpha_cutoff)
 		discard;
