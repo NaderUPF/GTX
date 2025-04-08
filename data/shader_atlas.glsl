@@ -79,6 +79,14 @@ uniform sampler2D u_texture;
 uniform float u_time;
 uniform float u_alpha_cutoff;
 
+//CODI PROFE
+uniform int light_types[10];
+uniform vec3 u_light_positions[10];
+uniform vec3 u_light_colors[10];
+uniform float u_light_intensity[10];
+
+uniform vec3 u_light_direction[10];
+
 out vec4 FragColor;
 
 void main()
@@ -87,10 +95,29 @@ void main()
 	vec4 color = u_color;
 	color *= texture(u_texture, v_uv);
 
+// CODI PROFE
+	vec3 light_component = vec3(0.0);
+	//ambient
+	for(int i = 0; i < 3; i++) {
+		vec3 L; 
+			if (light_types[i] == 1) { // POINT
+				L = normalize(u_light_positions[i] - v_world_position);
+			} else if (light_types[i] == 3) { // dir
+				L = normalize(u_light_direction[i]);
+			}
+	
+		float l_dot_n = clamp(dot(L, normalize(v_normal)), 0.0, 1.0);
+		light_component += u_light_intensity[i] * u_light_colors[i] * l_dot_n; // + specular
+	}
+
+	vec3 L = normalize(u_light_direction[3]);
+	float l_dot_n = clamp(dot(L, normalize(v_normal)), 0.0, 1.0);
+	light_component += u_light_intensity[3] * u_light_colors[3] * l_dot_n; // + specular
+
 	if(color.a < u_alpha_cutoff)
 		discard;
 
-	FragColor = color;
+	FragColor = color * vec4(light_component, 1.0);
 }
 
 \skybox.fs

@@ -82,6 +82,27 @@ void parseNodes(SCN::Node* node, Camera* cam) {
 	}
 }
 
+////CODI PROFE
+void parseNodes(SCN::Node* node, Camera* cam) {
+	if (!node) {
+		return;
+	}
+	if (node->mesh) {
+		sDrawCommand draw_com;
+		draw_com.mesh = node->mesh;
+		draw_com.material = node->material;
+		draw_com.model = node->getGlobalMatrix();
+
+		draw_command_list.push_back(draw_com);
+	}
+
+	//for(SCN::Mo)
+	//codi chat
+	for (SCN::Node* child : node->children) {
+		parseNodes(child, cam);
+	}
+}
+
 void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	// HERE =====================
 	// TODO: GENERATE RENDERABLES
@@ -160,7 +181,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	GFX::checkGLErrors();
 
 	//render skybox
-	if(skybox_cubemap)
+	if (skybox_cubemap)
 		renderSkybox(skybox_cubemap);
 
 	// HERE =====================
@@ -242,9 +263,9 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
 {
 	//in case there is nothing to do
-	if (!mesh || !mesh->getNumVertices() || !material )
+	if (!mesh || !mesh->getNumVertices() || !material)
 		return;
-    assert(glGetError() == GL_NO_ERROR);
+	assert(glGetError() == GL_NO_ERROR);
 
 	//define locals to simplify coding
 	//GFX::Shader* shader = NULL; //comment
@@ -258,7 +279,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	shader = GFX::Shader::Get("texture"); //comment
 	//GFX::Shader* shader = GFX::Shader::Get("phong"); // A2: TASK 2 & 3
 
-    assert(glGetError() == GL_NO_ERROR);
+	assert(glGetError() == GL_NO_ERROR);
 
 	//no shader? then nothing to render
 	if (!shader)
@@ -269,6 +290,33 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	material->bind(shader);
 
+	////CODI PROFE
+	//sending the lights
+	vec3* light_positions = new vec3[light_list.size()];
+	vec3* light_colors = new vec3[light_list.size()];
+	float* light_intensity = new float[light_list.size()];
+	vec3* light_direction = new vec3[light_list.size()];
+
+	// ...
+	int i = 0;
+	for (LightEntity* light : light_list) {
+		light_positions[i] = light->root.getGlobalMatrix().getTranslation();
+		light_colors[i] = light->color;
+		light_intensity[i] = light->intensity;
+		light_direction[i] = light->root.model.frontVector();
+		i++;
+	}
+
+	shader->setUniform3Array("u_light_positions", (float*)light_positions, min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_colors", (float*)light_colors, min(light_list.size(), 10));
+	shader->setUniform1Array("u_light_intensity", (float*)light_intensity, min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_direction", (float*)light_direction, min(light_list.size(), 10));
+
+	delete[] light_positions;
+	delete[] light_colors;
+	delete[] light_intensity;
+	delete[] light_direction;
+
 	//upload uniforms
 	shader->setUniform("u_model", model);
 
@@ -278,11 +326,11 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	// Upload time, for cool shader effects
 	float t = getTime();
-	shader->setUniform("u_time", t );
+	shader->setUniform("u_time", t);
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
-		glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
@@ -292,14 +340,14 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	//set the render state as it was before to avoid problems with future renders
 	glDisable(GL_BLEND);
-	glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
 #ifndef SKIP_IMGUI
 
 void Renderer::showUI()
 {
-		
+
 	ImGui::Checkbox("Wireframe", &render_wireframe);
 	ImGui::Checkbox("Boundaries", &render_boundaries);
 
