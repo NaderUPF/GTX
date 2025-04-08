@@ -95,6 +95,8 @@ void Material::bind(GFX::Shader* shader) {
 			texture = GFX::Texture::getWhiteTexture(); //a 1x1 white texture
 
 		shader->setUniform("u_color", color);
+		shader->setUniform("u_shininess", shininess); // A2: TASK 2 - send shininess to shader
+
 
 		if (texture)
 			shader->setUniform("u_texture", texture, 0);

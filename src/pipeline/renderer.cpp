@@ -17,6 +17,17 @@
 
 #include "scene.h"
 
+// A1: TASK 1 - Render Call struct
+struct sDrawCommand {
+	GFX::Mesh* mesh;
+	SCN::Material* material;
+	Matrix44 model;
+	float camera_distance;
+	bool is_transparent;
+};
+
+std::vector<sDrawCommand> draw_command_list;
+std::vector<SCN::LightEntity*> light_list; // A2: TASK 1 - Light List
 
 using namespace SCN;
 
@@ -46,10 +57,39 @@ void Renderer::setupScene()
 		skybox_cubemap = nullptr;
 }
 
+// A1: TASK 2 - Parse scene and generate render calls
+////CODI PROFE
+void parseNodes(SCN::Node* node, Camera* cam) {
+	if (!node) {
+		return;
+	}
+	if (node->mesh) {
+		sDrawCommand draw_com;
+		draw_com.mesh = node->mesh;
+		draw_com.material = node->material;
+		draw_com.model = node->getGlobalMatrix();
+
+		Vector3 pos = draw_com.model.getTranslation();
+		draw_com.camera_distance = (cam->eye - pos).length();
+
+		draw_com.is_transparent = (node->material && node->material->alpha_mode != SCN::NO_ALPHA);
+
+		draw_command_list.push_back(draw_com);
+	}
+
+	for (SCN::Node* child : node->children) {
+		parseNodes(child, cam);
+	}
+}
+
 void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	// HERE =====================
 	// TODO: GENERATE RENDERABLES
 	// ==========================
+
+	// A1: TASK 2 - GENERATE RENDERABLES
+	draw_command_list.clear(); // Avoid accumulation across frames
+	light_list.clear(); // A2: TASK 1
 
 	for (int i = 0; i < scene->entities.size(); i++) {
 		BaseEntity* entity = scene->entities[i];
@@ -64,8 +104,45 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 
 		// Store Lights
 		// ...
+
+		////CODI PROFE
+		if (entity->getType() == eEntityType::PREFAB) {
+			PrefabEntity* prefab_ent = (PrefabEntity*)entity;
+			parseNodes(&prefab_ent->root, cam);
+		}
+		else if (entity->getType() == eEntityType::LIGHT) {
+			light_list.push_back((LightEntity*)entity);
+		}
 	}
 	
+}
+
+// A2: TASK 3 - Upload light uniforms
+void Renderer::uploadLights(GFX::Shader* shader) {
+	int count = (int)light_list.size();
+	if (count > 10) count = 10;
+
+	vec3 light_positions[10];
+	vec3 light_colors[10];
+	float light_intensity[10];
+	vec3 light_direction[10];
+	int light_type[10];
+
+	for (int i = 0; i < count; ++i) {
+		LightEntity* light = light_list[i];
+		light_positions[i] = light->root.getGlobalMatrix().getTranslation();
+		light_colors[i] = light->color;
+		light_intensity[i] = light->intensity;
+		light_direction[i] = light->root.model.frontVector();
+		light_type[i] = (int)light->light_type;
+	}
+
+	shader->setUniform("u_num_lights", count);
+	shader->setUniform3Array("u_light_positions", (float*)light_positions, count);
+	shader->setUniform3Array("u_light_colors", (float*)light_colors, count);
+	shader->setUniform1Array("u_light_intensity", (float*)light_intensity, count);
+	shader->setUniform3Array("u_light_direction", (float*)light_direction, count);
+	shader->setUniform1Array("u_light_type", light_type, count);
 }
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
@@ -89,6 +166,35 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	// HERE =====================
 	// TODO: RENDER RENDERABLES
 	// ==========================
+
+	// A1: TASK 4 - ORDERING RENDER CALLS
+
+	std::vector<sDrawCommand> opaque, transparent;
+	for (auto& cmd : draw_command_list) {
+		if (cmd.is_transparent)
+			transparent.push_back(cmd);
+		else
+			opaque.push_back(cmd);
+	}
+
+	// Opaque: sort near to far
+	std::sort(opaque.begin(), opaque.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
+		return a.camera_distance < b.camera_distance;
+		});
+
+	// Transparent: sort far to near
+	std::sort(transparent.begin(), transparent.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
+		return a.camera_distance > b.camera_distance;
+		});
+
+	// A1: TASK 3 - RENDER RENDERABLES
+	////CODI PROFE
+	for (auto& command : opaque) {
+		renderMeshWithMaterial(command.model, command.mesh, command.material);
+	}
+	for (auto& command : transparent) {
+		renderMeshWithMaterial(command.model, command.mesh, command.material);
+	}
 }
 
 
@@ -141,13 +247,16 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
     assert(glGetError() == GL_NO_ERROR);
 
 	//define locals to simplify coding
-	GFX::Shader* shader = NULL;
+	//GFX::Shader* shader = NULL; //comment
+	GFX::Shader* shader = GFX::Shader::Get("phong"); // A2: TASK 2 & 3
+
 	Camera* camera = Camera::current;
 
 	glEnable(GL_DEPTH_TEST);
 
 	//chose a shader
-	shader = GFX::Shader::Get("texture");
+	shader = GFX::Shader::Get("texture"); //comment
+	//GFX::Shader* shader = GFX::Shader::Get("phong"); // A2: TASK 2 & 3
 
     assert(glGetError() == GL_NO_ERROR);
 
@@ -155,6 +264,8 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	if (!shader)
 		return;
 	shader->enable();
+
+	uploadLights(shader);
 
 	material->bind(shader);
 
@@ -194,6 +305,10 @@ void Renderer::showUI()
 
 	//add here your stuff
 	//...
+	//float& shininess = SCN::Material::default_material.shininess;
+	//ImGui::SliderFloat("Shininess", &shininess, 1.0f, 100.0f, "Shininess = %.1f");
+	//shine???
+	ImGui::SliderFloat("Shininess", &SCN::Material::default_material.shininess, 1.0f, 100.0f, "Shininess = %.1f");
 }
 
 #else

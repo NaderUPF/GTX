@@ -38,6 +38,7 @@ namespace SCN {
 
 		//add here your functions
 		//...
+		void uploadLights(GFX::Shader* shader); // A2: TASK 3 - Upload light uniforms
 
 		void parseSceneEntities(SCN::Scene* scene, Camera* camera);
 
