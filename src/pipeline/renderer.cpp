@@ -58,7 +58,6 @@ void Renderer::setupScene()
 }
 
 // A1: TASK 2 - Parse scene and generate render calls
-////CODI PROFE
 void parseNodes(SCN::Node* node, Camera* cam) {
 	if (!node) {
 		return;
@@ -82,31 +81,8 @@ void parseNodes(SCN::Node* node, Camera* cam) {
 	}
 }
 
-////CODI PROFE
-void parseNodes(SCN::Node* node, Camera* cam) {
-	if (!node) {
-		return;
-	}
-	if (node->mesh) {
-		sDrawCommand draw_com;
-		draw_com.mesh = node->mesh;
-		draw_com.material = node->material;
-		draw_com.model = node->getGlobalMatrix();
-
-		draw_command_list.push_back(draw_com);
-	}
-
-	//for(SCN::Mo)
-	//codi chat
-	for (SCN::Node* child : node->children) {
-		parseNodes(child, cam);
-	}
-}
 
 void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
-	// HERE =====================
-	// TODO: GENERATE RENDERABLES
-	// ==========================
 
 	// A1: TASK 2 - GENERATE RENDERABLES
 	draw_command_list.clear(); // Avoid accumulation across frames
@@ -119,14 +95,6 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 			continue;
 		}
 
-		// Store Prefab Entitys
-		// ...
-		//		Store Children Prefab Entities
-
-		// Store Lights
-		// ...
-
-		////CODI PROFE
 		if (entity->getType() == eEntityType::PREFAB) {
 			PrefabEntity* prefab_ent = (PrefabEntity*)entity;
 			parseNodes(&prefab_ent->root, cam);
@@ -184,10 +152,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	if (skybox_cubemap)
 		renderSkybox(skybox_cubemap);
 
-	// HERE =====================
-	// TODO: RENDER RENDERABLES
-	// ==========================
-
 	// A1: TASK 4 - ORDERING RENDER CALLS
 
 	std::vector<sDrawCommand> opaque, transparent;
@@ -209,7 +173,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		});
 
 	// A1: TASK 3 - RENDER RENDERABLES
-	////CODI PROFE
+	////CODI NOU
 	for (auto& command : opaque) {
 		renderMeshWithMaterial(command.model, command.mesh, command.material);
 	}
@@ -268,16 +232,16 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	assert(glGetError() == GL_NO_ERROR);
 
 	//define locals to simplify coding
-	//GFX::Shader* shader = NULL; //comment
-	GFX::Shader* shader = GFX::Shader::Get("phong"); // A2: TASK 2 & 3
-
+	GFX::Shader* shader = NULL;
 	Camera* camera = Camera::current;
 
+	// Enable depth testing with proper face culling
 	glEnable(GL_DEPTH_TEST);
+	material->two_sided ? glDisable(GL_CULL_FACE) : glEnable(GL_CULL_FACE);
 
 	//chose a shader
-	shader = GFX::Shader::Get("texture"); //comment
-	//GFX::Shader* shader = GFX::Shader::Get("phong"); // A2: TASK 2 & 3
+	//shader = GFX::Shader::Get("texture");
+	shader = GFX::Shader::Get("phong"); // A2: TASK 2 & 3
 
 	assert(glGetError() == GL_NO_ERROR);
 
@@ -286,36 +250,10 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		return;
 	shader->enable();
 
-	uploadLights(shader);
-
 	material->bind(shader);
 
-	////CODI PROFE
-	//sending the lights
-	vec3* light_positions = new vec3[light_list.size()];
-	vec3* light_colors = new vec3[light_list.size()];
-	float* light_intensity = new float[light_list.size()];
-	vec3* light_direction = new vec3[light_list.size()];
-
-	// ...
-	int i = 0;
-	for (LightEntity* light : light_list) {
-		light_positions[i] = light->root.getGlobalMatrix().getTranslation();
-		light_colors[i] = light->color;
-		light_intensity[i] = light->intensity;
-		light_direction[i] = light->root.model.frontVector();
-		i++;
-	}
-
-	shader->setUniform3Array("u_light_positions", (float*)light_positions, min(light_list.size(), 10));
-	shader->setUniform3Array("u_light_colors", (float*)light_colors, min(light_list.size(), 10));
-	shader->setUniform1Array("u_light_intensity", (float*)light_intensity, min(light_list.size(), 10));
-	shader->setUniform3Array("u_light_direction", (float*)light_direction, min(light_list.size(), 10));
-
-	delete[] light_positions;
-	delete[] light_colors;
-	delete[] light_intensity;
-	delete[] light_direction;
+	//upload light data
+	uploadLights(shader);
 
 	//upload uniforms
 	shader->setUniform("u_model", model);
