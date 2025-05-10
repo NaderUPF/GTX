@@ -15,8 +15,11 @@ plain basic.vs plain.fs
 // G-BUFFER FILL SHADER
 gbuffer_fill basic.vs gbuffer_fill.fs
 
-// DEFERRED LIGHTING SHADER
+// DEFERRED LIGHTING SHADER (used for directional lights with quad.vs, and point/spot with basic.vs)
 deferred_lighting quad.vs deferred_lighting.fs
+
+// NEW SHADER PROGRAM FOR POINT/SPOT LIGHT VOLUMES
+light_volume_deferred basic.vs deferred_lighting.fs
 
 \test.cs
 #version 430 core
@@ -350,164 +353,124 @@ void main()
 \deferred_lighting.fs
 #version 330 core
 
-in vec2 v_uv; // Texcoord from quad.vs covering the screen
-
 // G-Buffer Textures
-uniform sampler2D u_albedo_texture;    // Albedo (RGB) and potentially alpha (A)
-uniform sampler2D u_normal_material_texture; // World Normal (XYZ) and material data (W)
-uniform sampler2D u_depth_texture;     // Scene depth
+uniform sampler2D u_albedo_texture;    
+uniform sampler2D u_normal_material_texture; 
+uniform sampler2D u_depth_texture;     
 
-// Camera Uniforms for position reconstruction and lighting
+// Camera Uniforms
 uniform mat4 u_inverse_projection_matrix;
 uniform mat4 u_inverse_view_matrix;
-uniform vec3 u_camera_position; // Eye position for specular, etc.
+uniform vec3 u_camera_position; 
+uniform vec2 u_inv_screen_size; // ADDED: e.g. (1.0/width, 1.0/height)
 
-// Light Uniforms (same as phong.fs)
-uniform int u_num_lights;
-uniform int u_light_type[10];       // 1:Point, 2:Spot, 3:Directional
-uniform vec3 u_light_positions[10];
-uniform vec3 u_light_colors[10];
-uniform float u_light_intensity[10];
-uniform vec3 u_light_direction[10]; // For directional and spotlights
+// Light Uniforms (EXPECTING u_num_lights = 1 for each pass type)
+uniform int u_num_lights; 
+uniform int u_light_type[1];      
+uniform vec3 u_light_positions[1];
+uniform vec3 u_light_colors[1];
+uniform float u_light_intensity[1];
+uniform vec3 u_light_direction[1]; 
 
-// Shadow Mapping Uniforms (same as phong.fs)
-uniform sampler2D u_shadow_map[10]; // Assuming max 10 shadow-casting lights
-uniform mat4 u_shadow_vp[10];       // Light's ViewProjection matrix for each shadow map
+// Shadow Mapping Uniforms (for the single point/spot/directional light)
+uniform sampler2D u_shadow_map[1]; 
+uniform mat4 u_shadow_vp[1];       
 uniform float u_shadow_bias;
 
-out vec4 FragColor;
+out vec4 FragColor; // This will be additively blended
 
 void main()
 {
-    // Sample G-Buffer
-    vec4 albedo_gbuffer = texture(u_albedo_texture, v_uv);
+    vec2 screen_uv = gl_FragCoord.xy * u_inv_screen_size; // ADDED
+
+    // Sample G-Buffer using screen_uv
+    vec4 albedo_gbuffer = texture(u_albedo_texture, screen_uv);
     vec3 albedo_color = albedo_gbuffer.rgb;
-    float alpha = albedo_gbuffer.a;
 
-    vec4 normal_material_gbuffer = texture(u_normal_material_texture, v_uv);
+    vec4 normal_material_gbuffer = texture(u_normal_material_texture, screen_uv);
     vec3 world_normal = normalize(normal_material_gbuffer.xyz);
-    // float material_shininess = normal_material_gbuffer.w; // Example: if you store shininess in G-Buffer normal's W component
+    // float material_shininess_factor = normal_material_gbuffer.w; 
 
-    float depth = texture(u_depth_texture, v_uv).r;
+    float depth = texture(u_depth_texture, screen_uv).r; // Get depth using screen_uv
 
-    // If depth is at or very near 1.0, it might be background/far plane.
-    // Check for skybox normal first, as skybox can also be at far depth.
-    if (length(world_normal) < 0.001) { // Our convention for skybox from skybox.fs
-        FragColor = vec4(albedo_color, alpha); // Output sky color from albedo G-Buffer
-        return;
+    // IMPORTANT: Check for skybox pixels and discard if so, to avoid lighting the sky
+    // (Skybox might write 0 to normal, or depth might be max)
+    if (length(world_normal) < 0.001 || depth >= 0.99999) { // Used 'depth' variable
+        discard; // Do not light skybox or far plane background
     }
-    if (depth >= 0.99999) { // Threshold for far plane
-        // Output scene background color or a default clear color if not skybox
-        FragColor = vec4(0.0, 0.0, 0.0, 1.0); // Example: Black or scene.background_color
-        return;
-    }
-
-    // Reconstruct World Position from Depth
-    // 1. To NDC coordinates: v_uv is [0,1] -> [-1,1], depth is [0,1] -> [-1,1]
-    vec2 ndc_xy = v_uv * 2.0 - 1.0;
-    float ndc_z = depth * 2.0 - 1.0;
-    vec4 clip_pos = vec4(ndc_xy, ndc_z, 1.0);
-
-    // 2. To View Space: Multiply by inverse projection
-    vec4 view_pos = u_inverse_projection_matrix * clip_pos;
-    view_pos /= view_pos.w; // Perspective divide
-
-    // 3. To World Space: Multiply by inverse view
-    vec3 v_world_position = (u_inverse_view_matrix * view_pos).xyz;
-
-    // Lighting Calculations (similar to phong.fs)
-    vec3 N = world_normal; // Already world space from G-Buffer and normalized
-    vec3 V = normalize(u_camera_position - v_world_position); // View vector
-    vec3 final_phong_color = vec3(0.0); // Start with black for lighting accumulation
-
-    // Optional: A small global ambient term if desired, applied to albedo
-    // final_phong_color += albedo_color * vec3(0.1); // Example: 10% ambient
     
-    for (int i = 0; i < u_num_lights; ++i)
-    {
-        vec3 L; // Direction from surface point to light source
-        float attenuation = 1.0;
-        vec3 current_light_color = u_light_colors[i] * u_light_intensity[i];
+    // Reconstruct World Position from Depth
+    float depth_clip = depth * 2.0 - 1.0;
+    vec2 uv_clip = screen_uv * 2.0 - 1.0; 
+    vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
 
-        if (u_light_type[i] == 1) { // POINT
-            L = u_light_positions[i] - v_world_position; // Vector from point to light
-            float dist_sq = dot(L,L); // Use distance squared for efficiency
-            L = normalize(L);
-            // Example attenuation: 1 / (c1 + c2*dist + c3*dist^2)
-            attenuation = 1.0 / (1.0 + 0.05*sqrt(dist_sq) + 0.01*dist_sq); 
-        }
-        else if (u_light_type[i] == 3) { // DIRECTIONAL
-            L = normalize(u_light_direction[i]); // Direction TO the light (pre-normalized)
-            attenuation = 1.0;
-        }
-        else if (u_light_type[i] == 2) { // SPOTLIGHT
-            vec3 light_to_frag_vec = v_world_position - u_light_positions[i]; // Vector from light position to fragment
-            float dist_sq = dot(light_to_frag_vec, light_to_frag_vec);
-            L = normalize(-light_to_frag_vec); // Vector from fragment TO light
+    vec4 view_space_pos_h = u_inverse_projection_matrix * clip_coords;
+    vec4 world_pos_h = u_inverse_view_matrix * view_space_pos_h;
+    vec3 v_world_position = world_pos_h.xyz / world_pos_h.w; // UNCOMMENTED AND CORRECTED
 
-            vec3 spot_dir_norm = normalize(u_light_direction[i]); // Spotlight's main direction
-            // cos_angle is between vector from light to fragment and spotlight direction
-            float cos_angle = dot(normalize(light_to_frag_vec), spot_dir_norm); 
-            
-            // Use uniform angles for spot cone if available, otherwise hardcoded
-            float outer_cone_cos = cos(radians(25.0)); // e.g. 25 deg outer cutoff angle
-            float inner_cone_cos = cos(radians(20.0)); // e.g. 20 deg inner cutoff angle (full intensity)
-            // smoothstep provides a smooth transition between inner and outer cone
+    // Lighting Calculation for ONE light (u_num_lights will be 1, loop effectively runs once for i=0)
+    vec3 N = world_normal; 
+    vec3 V = normalize(u_camera_position - v_world_position); 
+    vec3 light_contribution = vec3(0.0); 
+    
+    // Simplified lighting logic for one light (index 0)
+    // This part needs to be robust for point/spot/directional based on u_light_type[0]
+    // and include shadow calculations if applicable.
+    // Assuming light properties are already in u_light_...[0]
+
+    vec3 L_dir_calc;
+    float attenuation = 1.0;
+    bool is_directional = (u_light_type[0] == 3);
+
+    if(is_directional) { // Directional
+        L_dir_calc = normalize(u_light_direction[0]);
+    } else { // Point or Spot
+        vec3 light_to_frag_world = v_world_position - u_light_positions[0]; // vector from light to fragment
+        float dist_sq = dot(light_to_frag_world, light_to_frag_world);
+        L_dir_calc = -normalize(light_to_frag_world); // vector from fragment to light
+
+        // Example attenuation for point/spot
+        attenuation = 1.0 / (1.0 + 0.01*sqrt(dist_sq) + 0.001*dist_sq); 
+
+        if (u_light_type[0] == 2) { // Spot
+            float cos_angle = dot(normalize(light_to_frag_world), normalize(u_light_direction[0]));
+            // Assuming u_light_direction stores spot direction, and you have cone angles
+            // float inner_cone_cos = cos(radians(u_light_cone_info[0].x)); 
+            // float outer_cone_cos = cos(radians(u_light_cone_info[0].y));
+            float inner_cone_cos = 0.9; // example
+            float outer_cone_cos = 0.7; // example
             float spot_factor = smoothstep(outer_cone_cos, inner_cone_cos, cos_angle);
-
-            attenuation = spot_factor / (1.0 + 0.05*sqrt(dist_sq) + 0.01*dist_sq);
-        }
-        else { continue; } // Unknown light type
-
-        float NdotL = max(dot(N, L), 0.0);
-        if (NdotL <= 0.0) {
-            // If light is behind the surface point, it contributes nothing to diffuse/specular
-            continue;
-        }
-
-        // Shadow Calculation
-        float shadow_factor = 1.0; // Assume not in shadow initially
-        // Check if this light casts shadows (you might have a flag or check if shadow_vp is valid)
-        // For simplicity, assume all lights from 0 to u_num_lights (up to 10) can cast shadows if their maps are bound
-        if (i < 10) { // Check against max shadow maps supported (array size)
-            vec4 shadow_coord_clip = u_shadow_vp[i] * vec4(v_world_position, 1.0); // To light's clip space
-            vec3 shadow_coord_ndc = shadow_coord_clip.xyz / shadow_coord_clip.w;   // To NDC [-1,1]
-            vec2 shadow_uv = shadow_coord_ndc.xy * 0.5 + 0.5; // Convert NDC to Shadow Map UV [0,1]
-
-            // Check if the fragment is within the shadow map's UV and depth range
-            if (shadow_uv.x >= 0.0 && shadow_uv.x <= 1.0 &&
-                shadow_uv.y >= 0.0 && shadow_uv.y <= 1.0 &&
-                shadow_coord_ndc.z <= 1.0) // z<=1 in NDC means it's not clipped by far plane of light
-            {
-                float shadow_map_depth = texture(u_shadow_map[i], shadow_uv).r; // Depth stored in shadow map
-                // current_depth_in_light_space should also be in [0,1] for comparison
-                float current_depth_in_light_space = shadow_coord_ndc.z * 0.5 + 0.5; // Depth of current fragment from light's POV, in [0,1]
-
-                if (current_depth_in_light_space > shadow_map_depth + u_shadow_bias) {
-                    shadow_factor = 0.0; // Fragment is in shadow
-                }
-            }
-            // else: Fragment is outside this light's shadow map frustum, assume not shadowed by *this specific map*
-        }
-
-        if (shadow_factor > 0.0) { // Only apply light if not fully in shadow
-            // Diffuse reflection
-            vec3 diffuse = albedo_color * current_light_color * NdotL;
-
-            // Specular reflection
-            vec3 R = reflect(-L, N); // Reflection vector
-            float RdotV = max(dot(R, V), 0.0);
-            
-            // Shininess: Retrieve from G-Buffer (e.g., normal_material_gbuffer.w) or use a default
-            // Assuming normal_material_gbuffer.w stores a value [0,1], map it to a specular power.
-            float shininess_val = normal_material_gbuffer.w * 128.0; // Example: map [0,1] to [0,128]
-            if (shininess_val < 1.0) shininess_val = 32.0; // Default shininess if zero or too small
-
-            vec3 specular = current_light_color * pow(RdotV, shininess_val);
-
-            final_phong_color += (diffuse + specular) * attenuation * shadow_factor;
+            attenuation *= spot_factor;
         }
     }
 
-    FragColor = vec4(final_phong_color, alpha);
+    float NdotL = max(dot(N, L_dir_calc), 0.0);
+    vec3 diffuse = albedo_color * u_light_colors[0] * u_light_intensity[0] * NdotL;
+
+    vec3 R = reflect(-L_dir_calc, N);
+    float RdotV = max(dot(R, V), 0.0);
+    float shininess = 32.0; // Placeholder for material shininess
+    vec3 specular = u_light_colors[0] * u_light_intensity[0] * pow(RdotV, shininess);
+    
+    light_contribution = (diffuse + specular) * attenuation; 
+
+    // Shadow factor (simplified, needs u_shadow_vp, u_shadow_map, u_shadow_bias for the current light)
+    float shadow_factor = 1.0;
+    if (u_light_type[0] != 0 && textureSize(u_shadow_map[0],0).x > 1) { // Check if shadow map is valid (simplistic check)
+        vec4 shadow_coord_clip = u_shadow_vp[0] * vec4(v_world_position, 1.0);
+        vec3 shadow_coord_proj = shadow_coord_clip.xyz / shadow_coord_clip.w;
+        shadow_coord_proj = shadow_coord_proj * 0.5 + 0.5; // to [0,1] range
+
+        if (shadow_coord_proj.z < 1.0) { // inside shadow map frustum (z is depth)
+            float depth_from_light = shadow_coord_proj.z - u_shadow_bias;
+            float shadow_map_stored_depth = texture(u_shadow_map[0], shadow_coord_proj.xy).r;
+            if (depth_from_light > shadow_map_stored_depth) {
+                shadow_factor = 0.0; // In shadow
+            }
+        }
+    }
+    light_contribution *= shadow_factor;
+
+
+    FragColor = vec4(light_contribution, 1.0); // Output light, alpha 1 for additive blend
 }
