@@ -1,7 +1,7 @@
 #include "renderer.h"
 
-#include <algorithm> //sort
-#include <iostream> // For std::cerr
+#include <algorithm> 
+#include <iostream>
 
 #include "camera.h"
 #include "../gfx/gfx.h"
@@ -21,13 +21,11 @@
 #include "shadow.h" // A3: TASK - Shadow map system
 #include "gbuffer.h" // Make sure gbuffer is included
 
-// Globals as per user's provided file structure
 std::vector<sDrawCommand> draw_command_list;
 std::vector<SCN::LightEntity*> light_list; // A2: TASK 1 - Light List
 
 using namespace SCN;
 
-//some globals
 GFX::Mesh sphere;
 // GFX::FBO gbuffer_fbo; // This will be SCN::Renderer::gbuffer.gbuffer_fbo
 
@@ -48,7 +46,6 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	// Get screen dimensions (using defines or CORE::getWindowSize())
 	// For consistency, let's assume CORE::getWindowSize() is preferred if available and working.
-	// If SCREEN_WIDTH/HEIGHT macros are primary, ensure they are correctly defined.
 	vec2 w_size = CORE::getWindowSize();
 	int screen_w = static_cast<int>(w_size.x);
 	int screen_h = static_cast<int>(w_size.y);
@@ -76,18 +73,8 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	// The depth texture here is primarily for the FBO structure; its content will be copied from gbuffer.
 	if (!lighting_fbo.create(screen_w, screen_h, 1, GL_RGBA, GL_UNSIGNED_BYTE, true)) {
 		std::cerr << "Error: Failed to create lighting_fbo." << std::endl;
-		// Handle error, perhaps exit or fallback
 	}
 	GFX::checkGLErrors();
-
-
-	sphere.createSphere(1.0f, 32, 24);
-	if (sphere.getNumVertices() == 0) {
-		std::cerr << "ERROR: Failed to procedurally create sphere mesh. Skybox and light volumes might not render." << std::endl;
-	} else {
-		// std::cout << "Log: Global sphere mesh created procedurally." << std::endl; // Less verbose
-	}
-	GFX::checkGLErrors(); 
 }
 
 void Renderer::setupScene()
@@ -136,7 +123,6 @@ void Renderer::parseSceneEntities(SCN::Scene* scene_ptr, Camera* cam, std::vecto
 	}
 	if (!cam) {
 		std::cerr << "Error: parseSceneEntities called with null camera." << std::endl;
-		// Decide if you can proceed without a camera for parsing, or return
 	}
 
 	for (size_t i = 0; i < scene_ptr->entities.size(); ++i) {
@@ -201,8 +187,8 @@ void Renderer::uploadLights(GFX::Shader* shader, const std::vector<SCN::LightEnt
 	}
 }
 
-// Definition of the new private helper methods:
 
+// Definition of the new private helper methods:
 void Renderer::renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>& opaque_commands) {
 	gbuffer.gbuffer_fbo.bind();
 	GFX::checkGLErrors();
@@ -225,7 +211,7 @@ void Renderer::renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>
 
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS); 
-    glDepthMask(GL_TRUE); // Ensure depth writing is enabled for G-Buffer
+    glDepthMask(GL_TRUE);
 
 	for (const auto& command : opaque_commands) {
 		renderMeshWithMaterial(command.model, command.mesh, command.material, gbuffer_fill_shader);
@@ -329,7 +315,7 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 					light->root.getGlobalMatrix().getTranslation().z);
 				light_sphere_model_matrix.scale(light->max_distance, light->max_distance, light->max_distance);
 				
-                // Set uniforms for basic.vs (transformation of the sphere)
+                // Set uniforms for basic.vs
 				light_volume_shader->setUniform("u_model", light_sphere_model_matrix);
 				light_volume_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 
@@ -350,25 +336,20 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
                 if (light->cast_shadows && light_volume_shader->IsUniform("u_shadow_map[0]")) {
                     for (int k = 0; k < SHADOW::active_shadow_count; ++k) {
                         if (SHADOW::getShadowMap(k) != nullptr) { 
-                            light_volume_shader->setUniform("u_shadow_map[0]", SHADOW::getShadowMap(k), 3); // Ensure tex unit is fine 
+                            light_volume_shader->setUniform("u_shadow_map[0]", SHADOW::getShadowMap(k), 3); 
                             light_volume_shader->setUniform("u_shadow_vp[0]", SHADOW::getLightCamera(k).viewprojection_matrix);
                             light_volume_shader->setUniform("u_shadow_bias", SHADOW::getShadowBias());
                             lv_shadow_params_set = true;
                             break; 
                         }
                     }
-                     if (!lv_shadow_params_set) { // Ensure shader doesn't use stale shadow map if none for this light
-                        // Option: bind a dummy 1x1 white texture, or ensure shader handles no shadow map
-                    }
                 }
-
-
 				if (light_volume_mesh_ptr->getNumVertices() > 0) {
 					light_volume_mesh_ptr->render(GL_TRIANGLES);
 				}
 			}
 		}
-        light_volume_shader->disable(); // Disable after point/spot lights
+        light_volume_shader->disable();
 	}
 	GFX::checkGLErrors();
 
@@ -428,16 +409,12 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
                                 dir_s_params_set = true;
                                 break; 
                             }
-                        }
-                         if (!dir_s_params_set) {
-                            // Option: bind a dummy 1x1 white texture
-                        }
                     }
                     quad_mesh_ptr->render(GL_TRIANGLES);
                 }
             }
         }
-        deferred_dir_shader->disable(); // Disable after directional lights
+        deferred_dir_shader->disable();
     }
 	GFX::checkGLErrors();
 
@@ -505,7 +482,7 @@ void Renderer::renderTransparentPass(Camera* camera, const std::vector<sDrawComm
 
 	for (const auto& command : transparent_commands) {
         phong_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-        phong_shader->setUniform3("u_camera_position", camera->eye.x, camera->eye.y, camera->eye.z);
+        phong_shader->setUniform("u_camera_position", camera->eye);
 		renderMeshWithMaterial(command.model, command.mesh, command.material, phong_shader);
 	}
     phong_shader->disable(); 
@@ -612,9 +589,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	GFX::Shader* shader_to_use = override_shader;
 	Camera* camera = Camera::current;
 
-	if (!shader_to_use) { // If no override, use default logic (e.g., phong, or material specified shader if any)
-		// This part might need more sophisticated logic if materials can specify their own shaders.
-		// For now, defaulting to "phong" if no override.
+	if (!shader_to_use) {
 		shader_to_use = GFX::Shader::Get("phong");
 	}
 
@@ -624,11 +599,6 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	}
 	shader_to_use->enable();
 
-	// material->bind() should handle:
-	// - Alpha mode (blending setup)
-	// - Two-sided (culling setup)
-	// - Binding textures (u_texture, etc.)
-	// - Setting material-specific uniforms (u_color, u_alpha_cutoff, etc.)
 	material->bind(shader_to_use);
 	GFX::checkGLErrors();
 
@@ -646,7 +616,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		// Light uniforms are uploaded by renderScene before rendering transparents.
 		// Shadow uniforms are uploaded here if the shader is phong (which uses them).
 		if (shader_to_use->IsUniform("u_shadow_map[0]")) {
-			int shadow_maps_to_bind = std::min<int>(SHADOW::active_shadow_count, 10); // Assuming max 10 shadow maps for phong
+			int shadow_maps_to_bind = std::min<int>(SHADOW::active_shadow_count, 10);
 			for (int i = 0; i < shadow_maps_to_bind; ++i) {
 				std::string shadow_map_name = "u_shadow_map[" + std::to_string(i) + "]";
 				std::string shadow_vp_name = "u_shadow_vp[" + std::to_string(i) + "]";
@@ -666,16 +636,9 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	mesh->render(GL_TRIANGLES);
 	GFX::checkGLErrors();
 
-	shader_to_use->disable();
 
 	if (render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
-	// Material should ideally unbind its specific states (like blending) if it enabled them.
-	// Or reset common states here if material->bind() is not perfectly symmetrical.
-	// glDisable(GL_BLEND); // If material enabled it and didn't disable.
-	// glEnable(GL_CULL_FACE); // If material disabled it and it should be on.
-	// glCullFace(GL_BACK);
 }
 
 #ifndef SKIP_IMGUI
@@ -696,8 +659,6 @@ void Renderer::showUI()
 	if (ImGui::Checkbox("Front Face Culling (Shadows)", &current_cull)) {
 		SHADOW::setFrontFaceCulling(current_cull);
 	}
-
-	// The G-Buffer Contents section has been removed.
 }
 
 #else
