@@ -1,4 +1,3 @@
-
 #include "material.h"
 
 #include "../core/includes.h"
@@ -41,15 +40,15 @@ Material::~Material()
 
 void Material::Release()
 {
-	std::vector<Material *>mats;
+	std::vector<Material*>mats;
 
 	for (auto mp : sMaterials)
 	{
-		Material *m = mp.second;
+		Material* m = mp.second;
 		mats.push_back(m);
 	}
 
-	for (Material *m : mats)
+	for (Material* m : mats)
 	{
 		delete m;
 	}
@@ -80,7 +79,7 @@ void Material::bind(GFX::Shader* shader) {
 
 	// Bind the textures and set uniforms =======================
 	{
-		GFX::Texture* texture = textures[SCN::eTextureChannel::ALBEDO].texture;
+		// GFX::Texture* texture = textures[SCN::eTextureChannel::ALBEDO].texture;
 
 		// HERE =====================
 		// TODO: Expand rfor the rest of materials (when you need to)
@@ -89,6 +88,22 @@ void Material::bind(GFX::Shader* shader) {
 		//	texture = normal_texture;
 		//	texture = occlusion_texture;
 		// ==========================
+
+		GFX::Texture* albedo_tex = textures[SCN::eTextureChannel::ALBEDO].texture;
+		if (!albedo_tex)
+			albedo_tex = GFX::Texture::getWhiteTexture();
+		shader->setUniform("u_albedo_texture", albedo_tex, 0);
+
+		GFX::Texture* normal_tex = textures[SCN::eTextureChannel::NORMALMAP].texture;
+		if (normal_tex)
+			shader->setUniform("u_normal_texture", normal_tex, 1);
+
+		GFX::Texture* mr_tex = textures[SCN::eTextureChannel::METALLIC_ROUGHNESS].texture;
+		if (mr_tex)
+			shader->setUniform("u_metallic_roughness_texture", mr_tex, 2);
+
+		shader->setUniform("u_roughness_factor", roughness_factor);
+		shader->setUniform("u_metallic_factor", metallic_factor);
 
 		// We always force a default albedo texture
 		if (texture == NULL)
