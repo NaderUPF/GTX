@@ -62,7 +62,7 @@ namespace SCN {
 		void setupScene();
 
 		// Shader uniform uploading
-		void uploadLights(GFX::Shader* shader, const std::vector<SCN::LightEntity*>& lights_list_ref);
+		void uploadLights(GFX::Shader* shader, const std::vector<SCN::LightEntity*>& lights);
 
 		// Scene parsing
 		void parseSceneEntities(SCN::Scene* scene_ptr, Camera* cam, std::vector<sDrawCommand>& commands_list, std::vector<SCN::LightEntity*>& lights_list);
@@ -73,7 +73,7 @@ namespace SCN {
 
 		// Renders a single mesh with a material (and optional override shader)
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material, GFX::Shader* shader_override);
-		
+
 		// For UI
 		void showUI();
 

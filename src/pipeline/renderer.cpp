@@ -19,7 +19,7 @@
 
 #include "scene.h"
 #include "shadow.h" // A3: TASK - Shadow map system
-#include "gbuffer.h" // Make sure gbuffer is included
+#include "gbuffer.h"
 
 std::vector<sDrawCommand> draw_command_list;
 std::vector<SCN::LightEntity*> light_list; // A2: TASK 1 - Light List
@@ -45,27 +45,26 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	GFX::checkGLErrors();
 
 	// Get screen dimensions (using defines or CORE::getWindowSize())
-	// For consistency, let's assume CORE::getWindowSize() is preferred if available and working.
 	vec2 w_size = CORE::getWindowSize();
 	int screen_w = static_cast<int>(w_size.x);
 	int screen_h = static_cast<int>(w_size.y);
 
 	if (screen_w <= 0 || screen_h <= 0) {
-        // Fallback if CORE::getWindowSize() returned invalid dimensions
-        #if defined(SCREEN_WIDTH) && defined(SCREEN_HEIGHT)
-		    screen_w = SCREEN_WIDTH;
-		    screen_h = SCREEN_HEIGHT;
-            if (screen_w <=0 || screen_h <=0) { // If defines also bad
-                 std::cerr << "Warning: SCREEN_WIDTH/HEIGHT are invalid. Using 800x600." << std::endl;
-                 screen_w = 800; screen_h = 600;
-            }
-        #else
-		    std::cerr << "Warning: CORE::getWindowSize() returned invalid dimensions and SCREEN_WIDTH/HEIGHT not defined. Using 800x600." << std::endl;
-		    screen_w = 800;
-		    screen_h = 600;
-        #endif
+		// Fallback if CORE::getWindowSize() returned invalid dimensions
+#if defined(SCREEN_WIDTH) && defined(SCREEN_HEIGHT)
+		screen_w = SCREEN_WIDTH;
+		screen_h = SCREEN_HEIGHT;
+		if (screen_w <= 0 || screen_h <= 0) { // If defines also bad
+			std::cerr << "Warning: SCREEN_WIDTH/HEIGHT are invalid. Using 800x600." << std::endl;
+			screen_w = 800; screen_h = 600;
+		}
+#else
+		std::cerr << "Warning: CORE::getWindowSize() returned invalid dimensions and SCREEN_WIDTH/HEIGHT not defined. Using 800x600." << std::endl;
+		screen_w = 800;
+		screen_h = 600;
+#endif
 	}
-	
+
 	gbuffer.create(screen_w, screen_h); // GBuffer with 2 color, 1 depth
 	GFX::checkGLErrors();
 
@@ -75,6 +74,10 @@ Renderer::Renderer(const char* shader_atlas_filename)
 		std::cerr << "Error: Failed to create lighting_fbo." << std::endl;
 	}
 	GFX::checkGLErrors();
+	SHADOW::initShadowMap(1024, 0);
+	SHADOW::initShadowMap(1024, 1);
+	SHADOW::initShadowMap(1024, 2);
+	SHADOW::initShadowMap(1024, 3);
 }
 
 void Renderer::setupScene()
@@ -198,7 +201,7 @@ void Renderer::renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>
 	GFX::checkGLErrors();
 
 	if (skybox_cubemap) {
-		renderSkybox(skybox_cubemap); 
+		renderSkybox(skybox_cubemap);
 		GFX::checkGLErrors();
 	}
 
@@ -210,8 +213,8 @@ void Renderer::renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>
 	}
 
 	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LESS); 
-    glDepthMask(GL_TRUE);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
 
 	for (const auto& command : opaque_commands) {
 		renderMeshWithMaterial(command.model, command.mesh, command.material, gbuffer_fill_shader);
@@ -225,28 +228,29 @@ void Renderer::renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>
 void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN::LightEntity*>& lights) {
 	if (gbuffer.gbuffer_fbo.depth_texture && lighting_fbo.depth_texture) {
 		gbuffer.gbuffer_fbo.depth_texture->copyTo(lighting_fbo.depth_texture);
-        GFX::checkGLErrors();
-	} else {
+		GFX::checkGLErrors();
+	}
+	else {
 		std::cerr << "Error: Depth texture missing for G-Buffer to Lighting FBO copy." << std::endl;
 		return;
 	}
 
 	lighting_fbo.bind();
 	GFX::checkGLErrors();
-	glClearColor(0.0f, 0.0f, 0.0f, 0.0f); 
-	glClear(GL_COLOR_BUFFER_BIT);        
+	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
 	GFX::checkGLErrors();
 
-    // Calculate inverse screen size for shader uniform
-    vec2 window_s = CORE::getWindowSize(); // Or get from G-Buffer/Lighting FBO dimensions
-    if (window_s.x <= 0 || window_s.y <= 0) { // Fallback if window size is invalid
-        window_s.x = static_cast<float>(gbuffer.gbuffer_fbo.width);
-        window_s.y = static_cast<float>(gbuffer.gbuffer_fbo.height);
-         if (window_s.x <= 0 || window_s.y <= 0) { // Final fallback
-            window_s.x = 800; window_s.y = 600;
-        }
-    }
-    vec2 inv_screen_size(1.0f / window_s.x, 1.0f / window_s.y);
+	// Calculate inverse screen size for shader uniform
+	vec2 window_s = CORE::getWindowSize(); // Or get from G-Buffer/Lighting FBO dimensions
+	if (window_s.x <= 0 || window_s.y <= 0) { // Fallback if window size is invalid
+		window_s.x = static_cast<float>(gbuffer.gbuffer_fbo.width);
+		window_s.y = static_cast<float>(gbuffer.gbuffer_fbo.height);
+		if (window_s.x <= 0 || window_s.y <= 0) { // Final fallback
+			window_s.x = 800; window_s.y = 600;
+		}
+	}
+	vec2 inv_screen_size(1.0f / window_s.x, 1.0f / window_s.y);
 
 	// Backup GL State (as before)
 	GLboolean prev_blend_enabled = glIsEnabled(GL_BLEND);
@@ -268,7 +272,8 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 	GFX::Shader* light_volume_shader = GFX::Shader::Get("light_volume_deferred"); // Use new shader
 	if (!light_volume_shader) {
 		std::cerr << "Light volume shader 'light_volume_deferred' not found!" << std::endl;
-	} else {
+	}
+	else {
 		light_volume_shader->enable();
 
 		// Set G-Buffer common textures (source for lighting calc)
@@ -289,21 +294,21 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 		light_volume_shader->setUniform("u_inverse_projection_matrix", inv_proj);
 		light_volume_shader->setUniform("u_inverse_view_matrix", inv_view);
 		light_volume_shader->setUniform3("u_camera_position", camera->eye.x, camera->eye.y, camera->eye.z);
-        light_volume_shader->setUniform2("u_inv_screen_size", inv_screen_size.x, inv_screen_size.y); // Set inv screen size
+		light_volume_shader->setUniform2("u_inv_screen_size", inv_screen_size.x, inv_screen_size.y); // Set inv screen size
 
 		glEnable(GL_BLEND);
 		glBlendEquation(GL_FUNC_ADD);
 		glBlendFunc(GL_ONE, GL_ONE);
 
 		glEnable(GL_CULL_FACE);
-		glFrontFace(GL_CW);      
-		glCullFace(GL_FRONT);    
+		glFrontFace(GL_CW);
+		glCullFace(GL_FRONT);
 
-		glEnable(GL_DEPTH_TEST); 
-		glDepthMask(GL_FALSE);     
+		glEnable(GL_DEPTH_TEST);
+		glDepthMask(GL_FALSE);
 		glDepthFunc(GL_GREATER); // CHANGED from GL_GEQUAL
 
-		GFX::Mesh* light_volume_mesh_ptr = &sphere; 
+		GFX::Mesh* light_volume_mesh_ptr = &sphere;
 
 		for (SCN::LightEntity* light : lights) {
 			if (light->light_type == SCN::eLightType::POINT || light->light_type == SCN::eLightType::SPOT) {
@@ -314,12 +319,12 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 					light->root.getGlobalMatrix().getTranslation().y,
 					light->root.getGlobalMatrix().getTranslation().z);
 				light_sphere_model_matrix.scale(light->max_distance, light->max_distance, light->max_distance);
-				
-                // Set uniforms for basic.vs
+
+				// Set uniforms for basic.vs
 				light_volume_shader->setUniform("u_model", light_sphere_model_matrix);
 				light_volume_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 
-                // Set uniforms for deferred_lighting.fs (light properties)
+				// Set uniforms for deferred_lighting.fs (light properties)
 				vec3 single_light_pos = light->root.getGlobalMatrix().getTranslation();
 				vec3 single_light_dir = light->root.model.frontVector();
 				int single_light_type_int_val = (light->light_type == SCN::eLightType::POINT) ? 1 : 2;
@@ -330,162 +335,164 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 				light_volume_shader->setUniform1("u_light_intensity[0]", light->intensity);
 				light_volume_shader->setUniform3("u_light_direction[0]", single_light_dir.x, single_light_dir.y, single_light_dir.z);
 				light_volume_shader->setUniform1("u_light_type[0]", single_light_type_int_val);
-				
-                // Simplified shadow part for light volumes
-                bool lv_shadow_params_set = false;
-                if (light->cast_shadows && light_volume_shader->IsUniform("u_shadow_map[0]")) {
-                    for (int k = 0; k < SHADOW::active_shadow_count; ++k) {
-                        if (SHADOW::getShadowMap(k) != nullptr) { 
-                            light_volume_shader->setUniform("u_shadow_map[0]", SHADOW::getShadowMap(k), 3); 
-                            light_volume_shader->setUniform("u_shadow_vp[0]", SHADOW::getLightCamera(k).viewprojection_matrix);
-                            light_volume_shader->setUniform("u_shadow_bias", SHADOW::getShadowBias());
-                            lv_shadow_params_set = true;
-                            break; 
-                        }
-                    }
-                }
+
+				// Simplified shadow part for light volumes
+				bool lv_shadow_params_set = false;
+				if (light->cast_shadows && light_volume_shader->IsUniform("u_shadow_map[0]")) {
+					for (int k = 0; k < SHADOW::active_shadow_count; ++k) {
+						if (SHADOW::getShadowMap(k) != nullptr) {
+							light_volume_shader->setUniform("u_shadow_map[0]", SHADOW::getShadowMap(k), 3);
+							light_volume_shader->setUniform("u_shadow_vp[0]", SHADOW::getLightCamera(k).viewprojection_matrix);
+							light_volume_shader->setUniform("u_shadow_bias", SHADOW::getShadowBias());
+							lv_shadow_params_set = true;
+							break;
+						}
+					}
+				}
 				if (light_volume_mesh_ptr->getNumVertices() > 0) {
 					light_volume_mesh_ptr->render(GL_TRIANGLES);
 				}
 			}
 		}
-        light_volume_shader->disable();
+		light_volume_shader->disable();
 	}
 	GFX::checkGLErrors();
 
 	// --- DIRECTIONAL LIGHTS (Full-screen Quad) ---
 	GFX::Shader* deferred_dir_shader = GFX::Shader::Get("deferred_lighting"); // This is quad.vs + deferred_lighting.fs
-    if (!deferred_dir_shader) {
-        std::cerr << "Deferred directional lighting shader 'deferred_lighting' not found!" << std::endl;
-    } else {
-        deferred_dir_shader->enable();
+	if (!deferred_dir_shader) {
+		std::cerr << "Deferred directional lighting shader 'deferred_lighting' not found!" << std::endl;
+	}
+	else {
+		deferred_dir_shader->enable();
 
-        // Set G-Buffer common textures
-        if (gbuffer.gbuffer_fbo.num_color_textures > 0 && gbuffer.gbuffer_fbo.color_textures[0]) {
-            deferred_dir_shader->setUniform("u_albedo_texture", gbuffer.gbuffer_fbo.color_textures[0], 0);
-        }
-        if (gbuffer.gbuffer_fbo.num_color_textures > 1 && gbuffer.gbuffer_fbo.color_textures[1]) {
-            deferred_dir_shader->setUniform("u_normal_material_texture", gbuffer.gbuffer_fbo.color_textures[1], 1);
-        }
-        if (gbuffer.gbuffer_fbo.depth_texture) {
-            deferred_dir_shader->setUniform("u_depth_texture", gbuffer.gbuffer_fbo.depth_texture, 2);
-        }
-        
-        // Camera Uniforms for position reconstruction & lighting
-        Matrix44 inv_proj_dir = camera->projection_matrix; inv_proj_dir.inverse();
-        Matrix44 inv_view_dir = camera->view_matrix;   inv_view_dir.inverse();
-        deferred_dir_shader->setUniform("u_inverse_projection_matrix", inv_proj_dir);
-        deferred_dir_shader->setUniform("u_inverse_view_matrix", inv_view_dir);
-        deferred_dir_shader->setUniform3("u_camera_position", camera->eye.x, camera->eye.y, camera->eye.z);
-        deferred_dir_shader->setUniform2("u_inv_screen_size", inv_screen_size.x, inv_screen_size.y); // Set inv screen size
+		// Set G-Buffer common textures
+		if (gbuffer.gbuffer_fbo.num_color_textures > 0 && gbuffer.gbuffer_fbo.color_textures[0]) {
+			deferred_dir_shader->setUniform("u_albedo_texture", gbuffer.gbuffer_fbo.color_textures[0], 0);
+		}
+		if (gbuffer.gbuffer_fbo.num_color_textures > 1 && gbuffer.gbuffer_fbo.color_textures[1]) {
+			deferred_dir_shader->setUniform("u_normal_material_texture", gbuffer.gbuffer_fbo.color_textures[1], 1);
+		}
+		if (gbuffer.gbuffer_fbo.depth_texture) {
+			deferred_dir_shader->setUniform("u_depth_texture", gbuffer.gbuffer_fbo.depth_texture, 2);
+		}
 
-        // For directional lights, depth test should compare against far plane or be effectively off
-        // if the quad is to cover everything. Using GL_ALWAYS. Blend is already set.
-        glCullFace(GL_BACK);    
-        glFrontFace(GL_CCW);   
-        glDepthFunc(GL_ALWAYS); // Directional light affects all pixels regardless of depth of the quad
+		// Camera Uniforms for position reconstruction & lighting
+		Matrix44 inv_proj_dir = camera->projection_matrix; inv_proj_dir.inverse();
+		Matrix44 inv_view_dir = camera->view_matrix;   inv_view_dir.inverse();
+		deferred_dir_shader->setUniform("u_inverse_projection_matrix", inv_proj_dir);
+		deferred_dir_shader->setUniform("u_inverse_view_matrix", inv_view_dir);
+		deferred_dir_shader->setUniform3("u_camera_position", camera->eye.x, camera->eye.y, camera->eye.z);
+		deferred_dir_shader->setUniform2("u_inv_screen_size", inv_screen_size.x, inv_screen_size.y); // Set inv screen size
 
-        GFX::Mesh* quad_mesh_ptr = GFX::Mesh::getQuad();
-        if (quad_mesh_ptr) {
-            for (SCN::LightEntity* light : lights) {
-                if (light->light_type == SCN::eLightType::DIRECTIONAL) {
-                    vec3 single_light_dir_val = light->root.model.frontVector();
-                    
-                    deferred_dir_shader->setUniform("u_num_lights", 1); // Shader expects array of 1
-                    deferred_dir_shader->setUniform3("u_light_positions[0]", 0.0f,0.0f,0.0f); // Not used by directional in shader's L_dir_calc
-                    deferred_dir_shader->setUniform3("u_light_colors[0]", light->color.x, light->color.y, light->color.z);
-                    deferred_dir_shader->setUniform1("u_light_intensity[0]", light->intensity);
-                    deferred_dir_shader->setUniform3("u_light_direction[0]", single_light_dir_val.x, single_light_dir_val.y, single_light_dir_val.z);
-                    deferred_dir_shader->setUniform1("u_light_type[0]", 3); 
+		// For directional lights, depth test should compare against far plane or be effectively off
+		// if the quad is to cover everything. Using GL_ALWAYS. Blend is already set.
+		glCullFace(GL_BACK);
+		glFrontFace(GL_CCW);
+		glDepthFunc(GL_ALWAYS); // Directional light affects all pixels regardless of depth of the quad
 
-                    // Simplified shadow part for directional lights
-                    bool dir_s_params_set = false;
-                    if (light->cast_shadows && deferred_dir_shader->IsUniform("u_shadow_map[0]")) {
-                        for (int k = 0; k < SHADOW::active_shadow_count; ++k) {
-                            if (SHADOW::getShadowMap(k) != nullptr) { 
-                                deferred_dir_shader->setUniform("u_shadow_map[0]", SHADOW::getShadowMap(k), 3); 
-                                deferred_dir_shader->setUniform("u_shadow_vp[0]", SHADOW::getLightCamera(k).viewprojection_matrix);
-                                deferred_dir_shader->setUniform("u_shadow_bias", SHADOW::getShadowBias());
-                                dir_s_params_set = true;
-                                break; 
-                            }
-                    }
-                    quad_mesh_ptr->render(GL_TRIANGLES);
-                }
-            }
-        }
-        deferred_dir_shader->disable();
-    }
-	GFX::checkGLErrors();
+		GFX::Mesh* quad_mesh_ptr = GFX::Mesh::getQuad();
+		if (quad_mesh_ptr) {
+			for (SCN::LightEntity* light : lights) {
+				if (light->light_type == SCN::eLightType::DIRECTIONAL) {
+					vec3 single_light_dir_val = light->root.model.frontVector();
 
-	lighting_fbo.unbind(); 
+					deferred_dir_shader->setUniform("u_num_lights", 1); // Shader expects array of 1
+					deferred_dir_shader->setUniform3("u_light_positions[0]", 0.0f, 0.0f, 0.0f); // Not used by directional in shader's L_dir_calc
+					deferred_dir_shader->setUniform3("u_light_colors[0]", light->color.x, light->color.y, light->color.z);
+					deferred_dir_shader->setUniform1("u_light_intensity[0]", light->intensity);
+					deferred_dir_shader->setUniform3("u_light_direction[0]", single_light_dir_val.x, single_light_dir_val.y, single_light_dir_val.z);
+					deferred_dir_shader->setUniform1("u_light_type[0]", 3);
 
-	// Restore GL States (as before)
-	if (prev_blend_enabled) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-	glBlendEquationSeparate(prev_blend_eq_rgb, prev_blend_eq_alpha);
-	glBlendFuncSeparate(prev_blend_src_rgb, prev_blend_dst_rgb, prev_blend_src_alpha, prev_blend_dst_alpha);
-	if (prev_cull_face_enabled) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
-	glCullFace(prev_cull_face_mode);
-	glFrontFace(prev_front_face);
-	glDepthMask(prev_depth_writemask);
-	glDepthFunc(prev_depth_func); 
-	GFX::checkGLErrors();
+					// Simplified shadow part for directional lights
+					bool dir_s_params_set = false;
+					if (light->cast_shadows && deferred_dir_shader->IsUniform("u_shadow_map[0]")) {
+						for (int k = 0; k < SHADOW::active_shadow_count; ++k) {
+							if (SHADOW::getShadowMap(k) != nullptr) {
+								deferred_dir_shader->setUniform("u_shadow_map[0]", SHADOW::getShadowMap(k), 3);
+								deferred_dir_shader->setUniform("u_shadow_vp[0]", SHADOW::getLightCamera(k).viewprojection_matrix);
+								deferred_dir_shader->setUniform("u_shadow_bias", SHADOW::getShadowBias());
+								dir_s_params_set = true;
+								break;
+							}
+						}
+						quad_mesh_ptr->render(GL_TRIANGLES);
+					}
+				}
+			}
+			deferred_dir_shader->disable();
+		}
+		GFX::checkGLErrors();
+
+		lighting_fbo.unbind();
+
+		// Restore GL States (as before)
+		if (prev_blend_enabled) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+		glBlendEquationSeparate(prev_blend_eq_rgb, prev_blend_eq_alpha);
+		glBlendFuncSeparate(prev_blend_src_rgb, prev_blend_dst_rgb, prev_blend_src_alpha, prev_blend_dst_alpha);
+		if (prev_cull_face_enabled) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
+		glCullFace(prev_cull_face_mode);
+		glFrontFace(prev_front_face);
+		glDepthMask(prev_depth_writemask);
+		glDepthFunc(prev_depth_func);
+		GFX::checkGLErrors();
+	}
 }
 
 void Renderer::compositeLightingToScreen() {
-    glViewport(0, 0, static_cast<GLsizei>(CORE::getWindowSize().x), static_cast<GLsizei>(CORE::getWindowSize().y));
-    // Main framebuffer is already bound (or should be by default after FBO unbind)
-    
-    glDisable(GL_DEPTH_TEST); // No depth test for full-screen blit
-    glDisable(GL_BLEND);      // Direct copy, no blending (or use GL_ONE, GL_ZERO if needed)
+	glViewport(0, 0, static_cast<GLsizei>(CORE::getWindowSize().x), static_cast<GLsizei>(CORE::getWindowSize().y));
+	// Main framebuffer is already bound (or should be by default after FBO unbind)
 
-    GFX::Shader* tex_shader = GFX::Shader::Get("texture");
-    if (!tex_shader) {
-        std::cerr << "Texture shader for composition not found!" << std::endl;
-        return;
-    }
-    if (lighting_fbo.num_color_textures == 0 || lighting_fbo.color_textures[0] == nullptr) {
-        std::cerr << "Lighting FBO color texture is missing for composition!" << std::endl;
-        return;
-    }
+	glDisable(GL_DEPTH_TEST); // No depth test for full-screen blit
+	glDisable(GL_BLEND);      // Direct copy, no blending (or use GL_ONE, GL_ZERO if needed)
 
-    tex_shader->enable();
-    tex_shader->setUniform("u_color", Vector4f(1,1,1,1)); // Ensure no tint
-    tex_shader->setUniform("u_texture", lighting_fbo.color_textures[0], 0);
-    
-    GFX::Mesh* quad = GFX::Mesh::getQuad();
-    if(quad) quad->render(GL_TRIANGLES);
-    
-    tex_shader->disable();
-    GFX::checkGLErrors();
+	GFX::Shader* tex_shader = GFX::Shader::Get("texture");
+	if (!tex_shader) {
+		std::cerr << "Texture shader for composition not found!" << std::endl;
+		return;
+	}
+	if (lighting_fbo.num_color_textures == 0 || lighting_fbo.color_textures[0] == nullptr) {
+		std::cerr << "Lighting FBO color texture is missing for composition!" << std::endl;
+		return;
+	}
+
+	tex_shader->enable();
+	tex_shader->setUniform("u_color", Vector4f(1, 1, 1, 1)); // Ensure no tint
+	tex_shader->setUniform("u_texture", lighting_fbo.color_textures[0], 0);
+
+	GFX::Mesh* quad = GFX::Mesh::getQuad();
+	if (quad) quad->render(GL_TRIANGLES);
+
+	tex_shader->disable();
+	GFX::checkGLErrors();
 }
 
 void Renderer::renderTransparentPass(Camera* camera, const std::vector<sDrawCommand>& transparent_commands, const std::vector<SCN::LightEntity*>& lights) {
 	// ... (transparent pass as before, ensuring it renders to the main framebuffer) ...
-    // Important: ensure depth test is re-enabled and blend func is for transparency
-	GFX::Shader* phong_shader = GFX::Shader::Get("phong"); 
+	// Important: ensure depth test is re-enabled and blend func is for transparency
+	GFX::Shader* phong_shader = GFX::Shader::Get("phong");
 	if (!phong_shader) {
-        std::cerr << "Phong shader for transparents not found!" << std::endl;
-        return;
-    }
+		std::cerr << "Phong shader for transparents not found!" << std::endl;
+		return;
+	}
 
-    phong_shader->enable(); 
+	phong_shader->enable();
 
 	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); 
-	
-    glEnable(GL_DEPTH_TEST); // Re-enable depth test
-	glDepthMask(GL_TRUE);    // Allow writing to depth buffer for transparents (can be tricky)
-    glDepthFunc(GL_LESS);    // Standard depth test
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	uploadLights(phong_shader, lights); 
+	glEnable(GL_DEPTH_TEST); // Re-enable depth test
+	glDepthMask(GL_TRUE);    // Allow writing to depth buffer for transparents (can be tricky)
+	glDepthFunc(GL_LESS);    // Standard depth test
+
+	uploadLights(phong_shader, lights);
 
 	for (const auto& command : transparent_commands) {
-        phong_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-        phong_shader->setUniform("u_camera_position", camera->eye);
+		phong_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+		phong_shader->setUniform("u_camera_position", camera->eye);
 		renderMeshWithMaterial(command.model, command.mesh, command.material, phong_shader);
 	}
-    phong_shader->disable(); 
+	phong_shader->disable();
 	glDisable(GL_BLEND);
 	GFX::checkGLErrors();
 }
@@ -493,10 +500,10 @@ void Renderer::renderTransparentPass(Camera* camera, const std::vector<sDrawComm
 // Updated renderScene
 void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 {
-	if (!scene_ptr || !camera) return; 
+	if (!scene_ptr || !camera) return;
 
-	this->scene = scene_ptr; 
-	setupScene(); 
+	this->scene = scene_ptr;
+	setupScene();
 
 	std::vector<sDrawCommand> local_draw_commands;
 	std::vector<SCN::LightEntity*> local_light_list;
@@ -511,10 +518,10 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 	}
 	std::sort(opaque_commands.begin(), opaque_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
 		return a.camera_distance < b.camera_distance;
-	});
+		});
 	std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
-		return a.camera_distance > b.camera_distance; 
-	});
+		return a.camera_distance > b.camera_distance;
+		});
 
 	SHADOW::renderAllShadowMaps(scene_ptr, opaque_commands, local_light_list);
 	GFX::checkGLErrors();
@@ -528,13 +535,14 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 	glClearColor(scene_ptr->background_color.x, scene_ptr->background_color.y, scene_ptr->background_color.z, 1.0f); // Clear to background for areas not covered by lighting pass result.
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear both color and depth
 	GFX::checkGLErrors();
-	
+
 	renderDeferredLightingPass(camera, local_light_list); // Renders into lighting_fbo
 	GFX::checkGLErrors();
-	
-	compositeLightingToScreen(); // Blits lighting_fbo result to main screen
+
+	lighting_fbo.color_textures[0]->toViewport();
+	//compositeLightingToScreen(); // Blits lighting_fbo result to main screen
 	GFX::checkGLErrors();
-	
+
 	renderTransparentPass(camera, transparent_commands, local_light_list); // Renders to main screen
 	GFX::checkGLErrors();
 }
@@ -546,9 +554,9 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 
 	// GL states for skybox rendering (targeting G-Buffer)
 	glDisable(GL_BLEND);
-	glEnable(GL_DEPTH_TEST); 
-	glDepthMask(GL_TRUE);    
-	glDisable(GL_CULL_FACE); 
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+	glDisable(GL_CULL_FACE);
 
 	if (render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -564,15 +572,15 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 	Matrix44 m;
 	m.setTranslation(camera->eye.x, camera->eye.y, camera->eye.z);
 	m.scale(camera->far_plane * 0.99f, camera->far_plane * 0.99f, camera->far_plane * 0.99f);
-	
-	shader->setUniform("u_model", m); 
-	shader->setUniform("u_viewprojection", camera->viewprojection_matrix); 
+
+	shader->setUniform("u_model", m);
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform3("u_camera_position", camera->eye.x, camera->eye.y, camera->eye.z);
 
 	// This is the call that currently triggers the assertion
-	shader->setUniform("u_texture", cubemap, 0); 
+	shader->setUniform("u_texture", cubemap, 0);
 
-	if (sphere.getNumVertices() > 0) sphere.render(GL_TRIANGLES); 
+	if (sphere.getNumVertices() > 0) sphere.render(GL_TRIANGLES);
 
 	shader->disable();
 

@@ -19,7 +19,7 @@ namespace SHADOW {
 
     // A3: TASK 1 - Initialize specific shadow map
     void initShadowMap(int resolution, int index) {
-        if (index < 0 || index >= MAX_SHADOW_MAPS) return;
+        if (index < 0 || index > MAX_SHADOW_MAPS) return;
 
         if (shadow_fbos[index]) delete shadow_fbos[index];
         shadow_fbos[index] = new GFX::FBO();
@@ -104,7 +104,6 @@ namespace SHADOW {
             if (light->light_type == SCN::eLightType::SPOT ||
                 light->light_type == SCN::eLightType::DIRECTIONAL) {
 
-                initShadowMap(1024, active_shadow_count);
                 setupLightCamera(light, active_shadow_count);
                 renderToShadowMap(scene, draw_calls, light, active_shadow_count);
                 active_shadow_count++;
