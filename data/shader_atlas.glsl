@@ -316,22 +316,58 @@ in vec2 v_uv;
 
 uniform vec4 u_color;
 uniform sampler2D u_texture;
+uniform sampler2D u_normalmap;
 uniform float u_alpha_cutoff;
+uniform int u_use_normalmap; // 0 = no normal map, 1 = use normal map
 
 layout(location = 0) out vec4 out_gbuffer_albedo;
 layout(location = 1) out vec4 out_gbuffer_normal;
 
+// Computes tangent space matrix for normal mapping
+mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv)
+{
+    vec3 dp1 = dFdx(p);
+    vec3 dp2 = dFdy(p);
+    vec2 duv1 = dFdx(uv);
+    vec2 duv2 = dFdy(uv);
+
+    vec3 dp2perp = cross(dp2, N);
+    vec3 dp1perp = cross(N, dp1);
+
+    vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+    vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+
+    float invmax = inversesqrt(max(dot(T,T), dot(B,B)));
+    return mat3(T * invmax, B * invmax, N);
+}
+
+// Apply normal map perturbation in tangent space
+vec3 perturbNormal(vec3 N, vec3 WP, vec2 uv)
+{
+    vec3 normal_pixel = texture(u_normalmap, uv).xyz;
+    normal_pixel = normal_pixel * 2.0 - 1.0; // Convert from [0,1] to [-1,1]
+
+    mat3 TBN = cotangent_frame(N, WP, uv);
+    return normalize(TBN * normal_pixel);
+}
+
 void main()
 {
-	vec4 tex_color = texture(u_texture, v_uv);
-	vec4 diffuse_albedo = u_color * tex_color;
+    vec4 tex_color = texture(u_texture, v_uv);
+    vec4 diffuse_albedo = u_color * tex_color;
 
-	if (diffuse_albedo.a < u_alpha_cutoff)
-		discard;
+    if (diffuse_albedo.a < u_alpha_cutoff)
+        discard;
 
-	out_gbuffer_albedo = diffuse_albedo;
-	out_gbuffer_normal = vec4(normalize(v_normal), 1.0);
+    vec3 N = normalize(v_normal);
+    if (u_use_normalmap == 1) {
+        N = perturbNormal(N, v_world_position, v_uv);
+    }
+
+    out_gbuffer_albedo = diffuse_albedo;
+    out_gbuffer_normal = vec4(N * 0.5 + 0.5, 1.0); // Encode normal in [0,1]
 }
+
 
 \pbr_gbuffer_fill.fs
 #version 330 core
