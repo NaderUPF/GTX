@@ -56,67 +56,53 @@ void Material::Release()
 }
 
 void Material::bind(GFX::Shader* shader) {
-	// First, configure the OpenGL state with the material settings =======================
-	{
-		// Select the blending
-		if (alpha_mode == SCN::eAlphaMode::BLEND)
-		{
-			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		}
-		else
-			glDisable(GL_BLEND);
+    // Configure OpenGL state (blending, culling)
+    if (alpha_mode == SCN::eAlphaMode::BLEND) {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+    else {
+        glDisable(GL_BLEND);
+    }
+    if (two_sided)
+        glDisable(GL_CULL_FACE);
+    else
+        glEnable(GL_CULL_FACE);
+    assert(glGetError() == GL_NO_ERROR);
 
-		// Select if render both sides of the triangles
-		if (two_sided)
-			glDisable(GL_CULL_FACE);
-		else
-			glEnable(GL_CULL_FACE);
+    // Bind textures with uniform checks
+    GFX::Texture* albedo_tex = textures[SCN::eTextureChannel::ALBEDO].texture;
+    if (!albedo_tex)
+        albedo_tex = GFX::Texture::getWhiteTexture();
 
-		// Check if any error
-		assert(glGetError() == GL_NO_ERROR);
-	}
+    if (shader->IsUniform("u_albedo_texture"))
+        shader->setUniform("u_albedo_texture", albedo_tex, 0);
 
-	// Bind the textures and set uniforms =======================
-	{
-		// GFX::Texture* texture = textures[SCN::eTextureChannel::ALBEDO].texture;
+    GFX::Texture* normal_tex = textures[SCN::eTextureChannel::NORMALMAP].texture;
+    if (normal_tex && shader->IsUniform("u_normal_material_texture"))
+        shader->setUniform("u_normal_material_texture", normal_tex, 1);
 
-		// HERE =====================
-		// TODO: Expand rfor the rest of materials (when you need to)
-		//	texture = emissive_texture;
-		//	texture = metallic_roughness_texture;
-		//	texture = normal_texture;
-		//	texture = occlusion_texture;
-		// ==========================
+    GFX::Texture* mr_tex = textures[SCN::eTextureChannel::METALLIC_ROUGHNESS].texture;
+    if (mr_tex && shader->IsUniform("u_metallic_roughness_texture"))
+        shader->setUniform("u_metallic_roughness_texture", mr_tex, 2);
 
-		GFX::Texture* albedo_tex = textures[SCN::eTextureChannel::ALBEDO].texture;
-		if (!albedo_tex)
-			albedo_tex = GFX::Texture::getWhiteTexture();
-		shader->setUniform("u_albedo_texture", albedo_tex, 0);
+    if (shader->IsUniform("u_roughness_factor"))
+        shader->setUniform("u_roughness_factor", roughness_factor);
 
-		GFX::Texture* normal_tex = textures[SCN::eTextureChannel::NORMALMAP].texture;
-		if (normal_tex)
-			shader->setUniform("u_normal_texture", normal_tex, 1);
+    if (shader->IsUniform("u_metallic_factor"))
+        shader->setUniform("u_metallic_factor", metallic_factor);
 
-		GFX::Texture* mr_tex = textures[SCN::eTextureChannel::METALLIC_ROUGHNESS].texture;
-		if (mr_tex)
-			shader->setUniform("u_metallic_roughness_texture", mr_tex, 2);
+    if (shader->IsUniform("u_color"))
+        shader->setUniform("u_color", color);
 
-		shader->setUniform("u_roughness_factor", roughness_factor);
-		shader->setUniform("u_metallic_factor", metallic_factor);
+    if (shader->IsUniform("u_shininess"))
+        shader->setUniform("u_shininess", shininess);
 
-		// We always force a default albedo texture
-		if (texture == NULL)
-			texture = GFX::Texture::getWhiteTexture(); //a 1x1 white texture
+    // Use albedo_tex as fallback texture uniform if shader expects it
+    if (shader->IsUniform("u_texture"))
+        shader->setUniform("u_texture", albedo_tex, 0);
 
-		shader->setUniform("u_color", color);
-		shader->setUniform("u_shininess", shininess); // A2: TASK 2 - send shininess to shader
-
-
-		if (texture)
-			shader->setUniform("u_texture", texture, 0);
-
-		// This is used to say which is the alpha threshold to what we should not paint a pixel on the screen (to cut polygons according to texture alpha)
-		shader->setUniform("u_alpha_cutoff", alpha_mode == SCN::eAlphaMode::MASK ? alpha_cutoff : 0.001f);
-	}
+    float cutoff = (alpha_mode == SCN::eAlphaMode::MASK) ? alpha_cutoff : 0.001f;
+    if (shader->IsUniform("u_alpha_cutoff"))
+        shader->setUniform("u_alpha_cutoff", cutoff);
 }

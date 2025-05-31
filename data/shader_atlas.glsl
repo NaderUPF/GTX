@@ -8,33 +8,33 @@
 // Used in multiple passes: G-Buffer fill, phong forward, light volumes
 // A1: Used for rendering geometry with proper model/viewprojection transformations
 // Example compiled shaders list (for reference)
-// flat basic.vs flat.fs
-// texture basic.vs texture.fs
-// skybox basic.vs skybox.fs
-// depth quad.vs depth.fs
-// multi basic.vs multi.fs
-// compute test.cs
+flat basic.vs flat.fs
+texture basic.vs texture.fs
+skybox basic.vs skybox.fs
+depth quad.vs depth.fs
+multi basic.vs multi.fs
+compute test.cs
 
 // ASSIGNMENT2: TASK 2 & 3
-// phong basic.vs phong.fs
+phong basic.vs phong.fs
 
 // ASSIGNMENT3: TASK 3.1
-// plain basic.vs plain.fs
+plain basic.vs plain.fs
 
 // G-BUFFER FILL SHADER
-// gbuffer_fill basic.vs gbuffer_fill.fs
+gbuffer_fill basic.vs gbuffer_fill.fs
 
 // DEFERRED LIGHTING SHADER (used for directional lights with quad.vs, and point/spot with basic.vs)
-// deferred_lighting quad.vs deferred_lighting.fs
+deferred_lighting quad.vs deferred_lighting.fs
 
 // NEW SHADER PROGRAM FOR POINT/SPOT LIGHT VOLUMES
-// light_volume_deferred basic.vs deferred_lighting.fs
+light_volume_deferred basic.vs deferred_lighting.fs
 
 // A5: TASK 2.2 - Add PBR G-Buffer and deferred lighting shaders
-// pbr_gbuffer_fill basic.vs pbr_gbuffer_fill.fs
-// pbr_deferred_lighting quad.vs pbr_deferred_lighting.fs
+pbr_gbuffer_fill basic.vs pbr_gbuffer_fill.fs
+pbr_deferred_lighting quad.vs pbr_deferred_lighting.fs
 
-//test.cs
+\test.cs
 #version 430 core
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() 
@@ -42,7 +42,7 @@ void main()
 	vec4 i = vec4(0.0);
 }
 
-//basic.vs
+\basic.vs
 #version 330 core
 in vec3 a_vertex;
 in vec3 a_normal;
@@ -72,7 +72,7 @@ void main()
 	gl_Position = u_viewprojection * vec4(v_world_position, 1.0);
 }
 
-//quad.vs
+\quad.vs
 #version 330 core
 in vec3 a_vertex;
 in vec2 a_coord;
@@ -84,7 +84,7 @@ void main()
 	gl_Position = vec4(a_vertex, 1.0);
 }
 
-//texture.fs
+\texture.fs
 #version 330 core
 in vec3 v_position;
 in vec3 v_world_position;
@@ -107,7 +107,7 @@ void main()
 	FragColor = color;
 }
 
-//flat.fs
+\flat.fs
 #version 330 core
 uniform vec4 u_color;
 out vec4 FragColor;
@@ -116,7 +116,7 @@ void main() {
 	FragColor = u_color;
 }
 
-//plain.fs
+\plain.fs
 #version 330 core
 out vec4 FragColor;
 
@@ -125,7 +125,7 @@ void main()
 	FragColor = vec4(0.0, 0.0, 0.0, 1.0);
 }
 
-//skybox.fs
+\skybox.fs
 #version 330 core
 in vec3 v_world_position;
 
@@ -143,7 +143,7 @@ void main()
 	gbuffer_normal = vec4(0.0, 0.0, 0.0, 0.0); 
 }
 
-//multi.fs
+\multi.fs
 #version 330 core
 in vec3 v_position;
 in vec3 v_world_position;
@@ -169,7 +169,7 @@ void main()
 	NormalColor = vec4(N, 1.0);
 }
 
-//depth.fs
+\depth.fs
 #version 330 core
 uniform vec2 u_camera_nearfar;
 uniform sampler2D u_texture;
@@ -188,7 +188,7 @@ void main()
 }
 
 
-//instanced.vs
+\instanced.vs
 #version 330 core
 in vec3 a_vertex;
 in vec3 a_normal;
@@ -213,7 +213,7 @@ void main()
 }
 
 
-//phong.fs
+\phong.fs
 #version 330 core
 
 in vec3 v_position;
@@ -307,7 +307,7 @@ void main()
 }
 
 
-//gbuffer_fill.fs
+\gbuffer_fill.fs
 #version 330 core
 
 in vec3 v_world_position;
@@ -333,7 +333,7 @@ void main()
 	out_gbuffer_normal = vec4(normalize(v_normal), 1.0);
 }
 
-//pbr_gbuffer_fill.fs
+\pbr_gbuffer_fill.fs
 #version 330 core
 
 in vec3 v_world_position;
@@ -365,7 +365,145 @@ void main()
 	// Note: Roughness, metallic, and AO can be packed in other targets or alpha channels if needed
 }
 
-//pbr_deferred_lighting.fs
+\deferred_lighting.fs
+#version 330 core
+
+// Input G-Buffer textures
+uniform sampler2D u_albedo_texture;
+uniform sampler2D u_normal_material_texture;
+uniform sampler2D u_depth_texture;
+
+// Camera & screen info
+uniform mat4 u_inverse_projection_matrix;
+uniform mat4 u_inverse_view_matrix;
+uniform vec3 u_camera_position;
+uniform vec2 u_inv_screen_size;
+
+// Lights
+uniform int u_num_lights;
+uniform int u_light_type[10];            // 1 = point, 2 = spot, 3 = directional
+uniform vec3 u_light_positions[10];
+uniform vec3 u_light_colors[10];
+uniform float u_light_intensity[10];
+uniform vec3 u_light_direction[10];
+
+// Shadow maps and matrices
+uniform sampler2D u_shadow_map[10];
+uniform mat4 u_shadow_vp[10];
+uniform float u_shadow_bias;
+
+out vec4 FragColor;
+
+const float PI = 3.14159265359;
+
+// Simple Lambertian diffuse term
+float computeDiffuse(vec3 N, vec3 L) {
+    return max(dot(N, L), 0.0);
+}
+
+void main()
+{
+    // Compute UV coordinates from fragment coords
+    vec2 uv = gl_FragCoord.xy * u_inv_screen_size;
+
+    // Sample G-Buffer
+    vec4 albedo = texture(u_albedo_texture, uv);
+    vec4 normal_material = texture(u_normal_material_texture, uv);
+    float depth = texture(u_depth_texture, uv).r;
+
+    // Discard if no geometry (depth at far plane)
+    if(depth >= 0.9999)
+        discard;
+
+    // Reconstruct world position from depth
+    float z = depth * 2.0 - 1.0; // Convert depth to NDC space [-1,1]
+    vec2 xy = uv * 2.0 - 1.0;    // NDC XY coords
+    vec4 clip_space_pos = vec4(xy, z, 1.0);
+    vec4 view_space_pos = u_inverse_projection_matrix * clip_space_pos;
+    view_space_pos /= view_space_pos.w;
+    vec4 world_space_pos = u_inverse_view_matrix * view_space_pos;
+    vec3 pos = world_space_pos.xyz;
+
+    // Get normal and material data
+    vec3 N = normalize(normal_material.xyz);
+    float roughness = clamp(normal_material.g, 0.05, 1.0);
+    float metallic = clamp(normal_material.b, 0.0, 1.0);
+    float ao = normal_material.r;
+
+    // View direction
+    vec3 V = normalize(u_camera_position - pos);
+
+    // Base reflectance for non-metal
+    vec3 F0 = vec3(0.04);
+    F0 = mix(F0, albedo.rgb, metallic);
+
+    vec3 Lo = vec3(0.0); // Accumulate lighting
+
+    // Loop over lights
+    for(int i = 0; i < u_num_lights; i++) {
+        vec3 L;
+        float attenuation = 1.0;
+
+        if(u_light_type[i] == 1) { // Point light
+            L = normalize(u_light_positions[i] - pos);
+            float dist = length(u_light_positions[i] - pos);
+            attenuation = 1.0 / (dist * dist);
+        }
+        else if(u_light_type[i] == 3) { // Directional light
+            L = normalize(u_light_direction[i]);
+            attenuation = 1.0;
+        }
+        else if(u_light_type[i] == 2) { // Spot light
+            vec3 light_to_frag = normalize(pos - u_light_positions[i]);
+            float cos_angle = dot(-light_to_frag, normalize(u_light_direction[i]));
+            float inner = 0.9;
+            float outer = 0.7;
+            float spot_smooth = clamp((cos_angle - outer) / (inner - outer), 0.0, 1.0);
+            L = normalize(u_light_positions[i] - pos);
+            float dist = length(u_light_positions[i] - pos);
+            attenuation = spot_smooth / (dist * dist);
+        }
+
+        float NdotL = computeDiffuse(N, L);
+        if(NdotL <= 0.0)
+            continue;
+
+        // Shadow calculation
+        vec4 shadowCoord = u_shadow_vp[i] * vec4(pos, 1.0);
+        shadowCoord.xyz /= shadowCoord.w;
+        shadowCoord.xyz = shadowCoord.xyz * 0.5 + 0.5;
+        float shadow = 1.0;
+
+        bool in_shadow = false;
+        if(shadowCoord.x >= 0.0 && shadowCoord.x <= 1.0 &&
+           shadowCoord.y >= 0.0 && shadowCoord.y <= 1.0) {
+            float closestDepth = texture(u_shadow_map[i], shadowCoord.xy).r;
+            float currentDepth = shadowCoord.z - u_shadow_bias;
+            if(currentDepth > closestDepth)
+                in_shadow = true;
+        }
+        if(in_shadow)
+            shadow = 0.0;
+
+        vec3 radiance = u_light_colors[i] * u_light_intensity[i] * attenuation;
+
+        // Simple diffuse lighting (Lambertian)
+        Lo += radiance * albedo.rgb * NdotL * shadow * ao;
+    }
+
+    // Ambient term
+    vec3 ambient = vec3(0.03) * albedo.rgb * ao;
+
+    vec3 color = ambient + Lo;
+
+    // Gamma correction
+    color = pow(color, vec3(1.0 / 2.2));
+
+    FragColor = vec4(color, albedo.a);
+}
+
+
+\pbr_deferred_lighting.fs
 #version 330 core
 
 uniform sampler2D u_albedo_texture;

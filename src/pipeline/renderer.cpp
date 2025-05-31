@@ -27,7 +27,7 @@ std::vector<SCN::LightEntity*> light_list; // A2: TASK 1 - Light List
 using namespace SCN;
 
 GFX::Mesh sphere;
-// GFX::FBO gbuffer_fbo; // This will be SCN::Renderer::gbuffer.gbuffer_fbo
+GFX::FBO gbuffer_fbo; // This will be SCN::Renderer::gbuffer.gbuffer_fbo
 
 Renderer::Renderer(const char* shader_atlas_filename)
 {
@@ -176,7 +176,7 @@ void Renderer::uploadLights(GFX::Shader* shader, const std::vector<SCN::LightEnt
 		case SCN::eLightType::POINT:    light_type_arr[i] = 1; break;
 		case SCN::eLightType::SPOT:     light_type_arr[i] = 2; break;
 		case SCN::eLightType::DIRECTIONAL: light_type_arr[i] = 3; break;
-		default: light_type_arr[i] = 1;
+		default: light_type_arr[i] = 3;
 		}
 	}
 
@@ -196,7 +196,7 @@ void Renderer::renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>
 	gbuffer.gbuffer_fbo.bind();
 	GFX::checkGLErrors();
 
-	glClearColor(0.0f, 0.0f, 0.0f, 0.0f); // Clear G-Buffer to black/transparent
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f); // Clear G-Buffer to black/transparent
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	GFX::checkGLErrors();
 
@@ -213,8 +213,9 @@ void Renderer::renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>
 	}
 
 	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LESS);
 	glDepthMask(GL_TRUE);
+	glDepthFunc(GL_LESS);
+
 
 	for (const auto& command : opaque_commands) {
 		renderMeshWithMaterial(command.model, command.mesh, command.material, gbuffer_fill_shader);
@@ -539,8 +540,8 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 	renderDeferredLightingPass(camera, local_light_list); // Renders into lighting_fbo
 	GFX::checkGLErrors();
 
-	lighting_fbo.color_textures[0]->toViewport();
-	//compositeLightingToScreen(); // Blits lighting_fbo result to main screen
+	//lighting_fbo.color_textures[0]->toViewport();
+	compositeLightingToScreen(); // Blits lighting_fbo result to main screen
 	GFX::checkGLErrors();
 
 	renderTransparentPass(camera, transparent_commands, local_light_list); // Renders to main screen
