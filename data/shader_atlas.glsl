@@ -359,7 +359,7 @@ void main()
 	if(final_color.a < u_alpha_cutoff)
 		discard;
 
-	out_gbuffer_albedo = final_color;
+	out_gbuffer_albedo = vec4(final_color.rgb, mr_sample.r);
 	out_gbuffer_normal = vec4(normalize(v_normal), 1.0);
 
 	// Note: Roughness, metallic, and AO can be packed in other targets or alpha channels if needed

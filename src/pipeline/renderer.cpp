@@ -205,7 +205,9 @@ void Renderer::renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>
 		GFX::checkGLErrors();
 	}
 
-	GFX::Shader* gbuffer_fill_shader = GFX::Shader::Get("gbuffer_fill");
+	// A5:TASK_2_3 - Use PBR G-buffer fill shader instead of legacy gbuffer_fill
+	GFX::Shader* gbuffer_fill_shader = GFX::Shader::Get("pbr_gbuffer_fill");
+
 	if (!gbuffer_fill_shader) {
 		std::cerr << "GBuffer fill shader 'gbuffer_fill' not found!" << std::endl;
 		gbuffer.gbuffer_fbo.unbind();
@@ -270,7 +272,8 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 	GLint prev_depth_func; glGetIntegerv(GL_DEPTH_FUNC, &prev_depth_func);
 
 	// --- POINT AND SPOT LIGHTS (Light Volumes) ---
-	GFX::Shader* light_volume_shader = GFX::Shader::Get("light_volume_deferred"); // Use new shader
+	// A5:TASK_2_3 - Use PBR deferred lighting shader for point/spot lights light volumes
+	GFX::Shader* light_volume_shader = GFX::Shader::Get("pbr_deferred_lighting");
 	if (!light_volume_shader) {
 		std::cerr << "Light volume shader 'light_volume_deferred' not found!" << std::endl;
 	}
@@ -360,7 +363,8 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 	GFX::checkGLErrors();
 
 	// --- DIRECTIONAL LIGHTS (Full-screen Quad) ---
-	GFX::Shader* deferred_dir_shader = GFX::Shader::Get("deferred_lighting"); // This is quad.vs + deferred_lighting.fs
+	// A5:TASK_2_3 - Use PBR deferred lighting shader for directional lights
+	GFX::Shader* deferred_dir_shader = GFX::Shader::Get("pbr_deferred_lighting");
 	if (!deferred_dir_shader) {
 		std::cerr << "Deferred directional lighting shader 'deferred_lighting' not found!" << std::endl;
 	}
