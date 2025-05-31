@@ -1,9 +1,3 @@
-// shader_atlas.glsl
-
-// ---------------------------------------------
-// Vertex Shaders
-// ---------------------------------------------
-
 // basic.vs
 // Used in multiple passes: G-Buffer fill, phong forward, light volumes
 // A1: Used for rendering geometry with proper model/viewprojection transformations
@@ -33,6 +27,10 @@ light_volume_deferred basic.vs deferred_lighting.fs
 // A5: TASK 2.2 - Add PBR G-Buffer and deferred lighting shaders
 pbr_gbuffer_fill basic.vs pbr_gbuffer_fill.fs
 pbr_deferred_lighting quad.vs pbr_deferred_lighting.fs
+
+//A6:TASK 6
+ssao quad.vs ssao.fs
+ssao_blur quad.vs ssao_blur.fs
 
 \test.cs
 #version 430 core
@@ -372,6 +370,7 @@ void main()
 uniform sampler2D u_albedo_texture;
 uniform sampler2D u_normal_material_texture;
 uniform sampler2D u_depth_texture;
+uniform sampler2D u_ssao_texture;
 
 // Camera & screen info
 uniform mat4 u_inverse_projection_matrix;
@@ -405,6 +404,7 @@ void main()
 {
     // Compute UV coordinates from fragment coords
     vec2 uv = gl_FragCoord.xy * u_inv_screen_size;
+	float ssao_ao = texture(u_ssao_texture, uv).r;
 
     // Sample G-Buffer
     vec4 albedo = texture(u_albedo_texture, uv);
@@ -428,7 +428,8 @@ void main()
     vec3 N = normalize(normal_material.xyz);
     float roughness = clamp(normal_material.g, 0.05, 1.0);
     float metallic = clamp(normal_material.b, 0.0, 1.0);
-    float ao = normal_material.r;
+	float material_ao = normal_material.r;
+	float ao = ssao_ao * material_ao;
 
     // View direction
     vec3 V = normalize(u_camera_position - pos);
@@ -675,4 +676,96 @@ void main()
 	color = pow(color, vec3(1.0 / 2.2));
 
 	FragColor = vec4(color, albedo_sample.a);
+}
+
+\ssao.fs
+#version 330 core
+in vec2 v_uv;
+
+uniform sampler2D u_normal_texture;
+uniform sampler2D u_depth_texture;
+
+uniform mat4 u_inverse_projection_matrix;
+
+uniform vec3 samples[64]; // max samples, adjust count accordingly
+
+uniform float u_radius;
+uniform vec2 u_inv_resolution;
+
+out float FragColor;
+
+float LinearizeDepth(float depth) {
+    float near = 0.1;
+    float far = 100.0;
+    return (2.0 * near) / (far + near - depth * (far - near));
+}
+
+void main() {
+    float occlusion = 0.0;
+    vec3 normal = texture(u_normal_texture, v_uv).xyz * 2.0 - 1.0;
+    float depth = texture(u_depth_texture, v_uv).r;
+    if (depth >= 1.0) {
+        FragColor = 1.0; // no occlusion at far plane
+        return;
+    }
+    float linear_depth = LinearizeDepth(depth);
+
+    // Reconstruct view-space position
+    vec4 clip_pos = vec4(v_uv * 2.0 - 1.0, depth, 1.0);
+    vec4 view_pos = u_inverse_projection_matrix * clip_pos;
+    view_pos /= view_pos.w;
+    vec3 pos = view_pos.xyz;
+
+    for (int i = 0; i < 64; ++i) {
+        vec3 sample_pos = pos + samples[i] * u_radius;
+        vec4 offset = u_inverse_projection_matrix * vec4(sample_pos, 1.0);
+        offset /= offset.w;
+        vec2 offset_uv = offset.xy * 0.5 + 0.5;
+        float sample_depth = texture(u_depth_texture, offset_uv).r;
+        float sample_linear_depth = LinearizeDepth(sample_depth);
+
+        float range_check = smoothstep(0.0, 1.0, u_radius / abs(linear_depth - sample_linear_depth));
+        if (sample_linear_depth >= sample_pos.z + 0.01) {
+            occlusion += range_check;
+        }
+    }
+
+    occlusion = 1.0 - (occlusion / 64.0);
+    FragColor = occlusion;
+}
+
+\ssao_blur.fs
+#version 330 core
+in vec2 v_uv;
+
+uniform sampler2D u_ssao_input;
+uniform vec2 u_inv_resolution;
+
+out float FragColor;
+
+void main()
+{
+    float result = 0.0;
+    float totalWeight = 0.0;
+
+    // Simple 3x3 Gaussian blur kernel weights
+    float kernel[9] = float[](1.0, 2.0, 1.0,
+                             2.0, 4.0, 2.0,
+                             1.0, 2.0, 1.0);
+
+    int idx = 0;
+    for(int y = -1; y <= 1; ++y)
+    {
+        for(int x = -1; x <= 1; ++x)
+        {
+            vec2 offset = vec2(float(x), float(y)) * u_inv_resolution;
+            float sample = texture(u_ssao_input, v_uv + offset).r;
+            float weight = kernel[idx];
+            result += sample * weight;
+            totalWeight += weight;
+            idx++;
+        }
+    }
+
+    FragColor = result / totalWeight;
 }

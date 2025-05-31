@@ -55,6 +55,11 @@ namespace SCN {
 		// New FBO for light accumulation
 		GFX::FBO lighting_fbo;
 
+		// A6:TASK_1 - SSAO variables
+		GFX::FBO ssao_fbo;               // FBO to store SSAO texture
+		GFX::Shader* ssao_shader = nullptr;    // SSAO shader pointer
+		GFX::Shader* ssao_blur_shader = nullptr; // Optional: For SSAO blur pass
+
 		//constructor
 		Renderer(const char* shaders_atlas_filename);
 
@@ -76,6 +81,20 @@ namespace SCN {
 
 		// For UI
 		void showUI();
+
+		// SSAO parameters to tweak via ImGui
+		int ssao_num_samples = 32;       // Default sample count, adjustable [1..64]
+		float ssao_radius = 0.5f;        // Sample radius
+		bool ssao_use_hemisphere = true; // Use hemisphere sampling (SSAO+)
+
+		std::vector<Vector3f> ssao_samples; // Sample kernel points on CPU
+
+		void generateSSAOSamples(int num_samples, bool hemisphere);
+		void setupSSAOPass(int width, int height);
+		void renderSSAOPass(Camera* camera);
+		void showSSAOControlsUI();
+
+
 
 	private:
 		// Helper for skybox rendering, called during G-Buffer pass

@@ -20,6 +20,7 @@
 #include "scene.h"
 #include "shadow.h" // A3: TASK - Shadow map system
 #include "gbuffer.h"
+#include <random>
 
 std::vector<sDrawCommand> draw_command_list;
 std::vector<SCN::LightEntity*> light_list; // A2: TASK 1 - Light List
@@ -78,6 +79,11 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	SHADOW::initShadowMap(1024, 1);
 	SHADOW::initShadowMap(1024, 2);
 	SHADOW::initShadowMap(1024, 3);
+
+	// A6:TASK_2 - Setup SSAO FBO and generate samples
+	setupSSAOPass(screen_w, screen_h);
+	generateSSAOSamples(ssao_num_samples, ssao_use_hemisphere);
+
 }
 
 void Renderer::setupScene()
@@ -381,6 +387,9 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 		if (gbuffer.gbuffer_fbo.depth_texture) {
 			deferred_dir_shader->setUniform("u_depth_texture", gbuffer.gbuffer_fbo.depth_texture, 2);
 		}
+		if (ssao_fbo.color_textures[0]) {
+			deferred_dir_shader->setUniform("u_ssao_texture", ssao_fbo.color_textures[0], 5);
+		}
 
 		// Camera Uniforms for position reconstruction & lighting
 		Matrix44 inv_proj_dir = camera->projection_matrix; inv_proj_dir.inverse();
@@ -534,6 +543,9 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 	renderGBufferPass(camera, opaque_commands);
 	GFX::checkGLErrors();
 
+	// A6:TASK_3 - SSAO pass after GBuffer
+	renderSSAOPass(camera);
+
 	// Main framebuffer is implicitly active after gbuffer.unbind()
 	// Clear main framebuffer (color will be overwritten by composite, depth might be used by transparents)
 	glViewport(0, 0, static_cast<GLsizei>(CORE::getWindowSize().x), static_cast<GLsizei>(CORE::getWindowSize().y));
@@ -654,6 +666,101 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
+void Renderer::generateSSAOSamples(int num_samples, bool hemisphere)
+{
+    ssao_samples.clear();
+
+    std::default_random_engine generator;
+    std::uniform_real_distribution<float> random01(0.0f, 1.0f);
+
+    for (int i = 0; i < num_samples; ++i) {
+        // Sample in [-1,1]
+        Vector3f sample(
+            random01(generator) * 2.0f - 1.0f,
+            random01(generator) * 2.0f - 1.0f,
+            random01(generator)
+        );
+
+        if (hemisphere) {
+            sample.z = fabs(sample.z); // Only positive hemisphere z
+        } else {
+            sample = normalize(sample);
+        }
+
+        // Scale sample length to bias toward center
+        float scale = float(i) / float(num_samples);
+        scale = 0.1f + 0.9f * (scale * scale);
+        sample = normalize(sample) * scale;
+
+        ssao_samples.push_back(sample);
+    }
+}
+
+
+void Renderer::setupSSAOPass(int width, int height)
+{
+    int ssao_width = width / 2; // half res for performance
+    int ssao_height = height / 2;
+
+    if (!ssao_fbo.create(ssao_width, ssao_height, 1, GL_RED, GL_UNSIGNED_BYTE, false)) {
+        std::cerr << "Failed to create SSAO FBO" << std::endl;
+    }
+
+    ssao_shader = GFX::Shader::Get("ssao");
+    ssao_blur_shader = GFX::Shader::Get("ssao_blur");
+
+    if (!ssao_shader) std::cerr << "SSAO shader not found!" << std::endl;
+    if (!ssao_blur_shader) std::cerr << "SSAO blur shader not found!" << std::endl;
+}
+
+
+void Renderer::renderSSAOPass(Camera* camera)
+{
+    if (!ssao_shader) return;
+
+    ssao_fbo.bind();
+
+    glViewport(0, 0, ssao_fbo.width, ssao_fbo.height);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    ssao_shader->enable();
+
+    // Bind GBuffer textures
+	if (gbuffer.gbuffer_fbo.color_textures[1]) {
+		ssao_shader->setUniform("u_normal_texture", gbuffer.gbuffer_fbo.color_textures[1], 0);
+	}
+	if (gbuffer.gbuffer_fbo.depth_texture) {
+		ssao_shader->setUniform("u_depth_texture", gbuffer.gbuffer_fbo.depth_texture, 1);
+	}
+    // Upload sample kernel
+    for (int i = 0; i < (int)ssao_samples.size(); ++i) {
+        std::string name = "samples[" + std::to_string(i) + "]";
+        ssao_shader->setUniform3(name.c_str(), ssao_samples[i].x, ssao_samples[i].y, ssao_samples[i].z);
+    }
+
+    // Camera matrices
+    Matrix44 proj_inv = camera->projection_matrix; proj_inv.inverse();
+    ssao_shader->setUniform("u_inverse_projection_matrix", proj_inv);
+    ssao_shader->setUniform("u_radius", ssao_radius);
+
+    // Pass screen size inverse
+    vec2 inv_res = vec2(1.0f / ssao_fbo.width, 1.0f / ssao_fbo.height);
+	ssao_shader->setUniform("u_inv_resolution", inv_res);
+
+    // Render fullscreen quad
+    GFX::Mesh* quad = GFX::Mesh::getQuad();
+    if (quad) quad->render(GL_TRIANGLES);
+
+    ssao_shader->disable();
+
+    ssao_fbo.unbind();
+
+    // Restore viewport to main framebuffer size
+    vec2 win_size = CORE::getWindowSize();
+    glViewport(0, 0, (int)win_size.x, (int)win_size.y);
+}
+
+
 #ifndef SKIP_IMGUI
 
 void Renderer::showUI()
@@ -672,6 +779,19 @@ void Renderer::showUI()
 	if (ImGui::Checkbox("Front Face Culling (Shadows)", &current_cull)) {
 		SHADOW::setFrontFaceCulling(current_cull);
 	}
+
+	ImGui::Separator();
+	ImGui::Text("SSAO Settings");
+	if (ImGui::SliderInt("Samples", &ssao_num_samples, 1, 64)) {
+		generateSSAOSamples(ssao_num_samples, ssao_use_hemisphere);
+	}
+	if (ImGui::SliderFloat("Radius", &ssao_radius, 0.01f, 2.0f)) {
+		// Radius updated, will be sent next frame
+	}
+	if (ImGui::Checkbox("Hemisphere Samples", &ssao_use_hemisphere)) {
+		generateSSAOSamples(ssao_num_samples, ssao_use_hemisphere);
+	}
+
 }
 
 #else
