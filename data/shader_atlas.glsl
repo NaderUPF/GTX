@@ -404,18 +404,14 @@ void main()
 \deferred_lighting.fs
 #version 330 core
 
-// Input G-Buffer textures
 uniform sampler2D u_albedo_texture;
 uniform sampler2D u_normal_material_texture;
 uniform sampler2D u_depth_texture;
 
-// Camera & screen info
-uniform mat4 u_inverse_projection_matrix;
-uniform mat4 u_inverse_view_matrix;
+uniform mat4 u_inverse_viewprojection_matrix;
 uniform vec3 u_camera_position;
 uniform vec2 u_inv_screen_size;
 
-// Lights
 uniform int u_num_lights;
 uniform int u_light_type[10];            // 1 = point, 2 = spot, 3 = directional
 uniform vec3 u_light_positions[10];
@@ -423,7 +419,6 @@ uniform vec3 u_light_colors[10];
 uniform float u_light_intensity[10];
 uniform vec3 u_light_direction[10];
 
-// Shadow maps and matrices
 uniform sampler2D u_shadow_map[10];
 uniform mat4 u_shadow_vp[10];
 uniform float u_shadow_bias;
@@ -439,43 +434,36 @@ float computeDiffuse(vec3 N, vec3 L) {
 
 void main()
 {
-    // Compute UV coordinates from fragment coords
     vec2 uv = gl_FragCoord.xy * u_inv_screen_size;
 
-    // Sample G-Buffer
     vec4 albedo = texture(u_albedo_texture, uv);
     vec4 normal_material = texture(u_normal_material_texture, uv);
     float depth = texture(u_depth_texture, uv).r;
 
-    // Discard if no geometry (depth at far plane)
     if(depth >= 0.9999)
         discard;
 
-    // Reconstruct world position from depth
-    float z = depth * 2.0 - 1.0; // Convert depth to NDC space [-1,1]
-    vec2 xy = uv * 2.0 - 1.0;    // NDC XY coords
+    float z = depth * 2.0 - 1.0;
+    vec2 xy = uv * 2.0 - 1.0;
     vec4 clip_space_pos = vec4(xy, z, 1.0);
-    vec4 view_space_pos = u_inverse_projection_matrix * clip_space_pos;
-    view_space_pos /= view_space_pos.w;
-    vec4 world_space_pos = u_inverse_view_matrix * view_space_pos;
+
+    // Use combined inverse viewprojection matrix
+    vec4 world_space_pos = u_inverse_viewprojection_matrix * clip_space_pos;
+    world_space_pos /= world_space_pos.w;
     vec3 pos = world_space_pos.xyz;
 
-    // Get normal and material data
     vec3 N = normalize(normal_material.xyz);
     float roughness = clamp(normal_material.g, 0.05, 1.0);
     float metallic = clamp(normal_material.b, 0.0, 1.0);
     float ao = normal_material.r;
 
-    // View direction
     vec3 V = normalize(u_camera_position - pos);
 
-    // Base reflectance for non-metal
     vec3 F0 = vec3(0.04);
     F0 = mix(F0, albedo.rgb, metallic);
 
-    vec3 Lo = vec3(0.0); // Accumulate lighting
+    vec3 Lo = vec3(0.0);
 
-    // Loop over lights
     for(int i = 0; i < u_num_lights; i++) {
         vec3 L;
         float attenuation = 1.0;
@@ -504,7 +492,6 @@ void main()
         if(NdotL <= 0.0)
             continue;
 
-        // Shadow calculation
         vec4 shadowCoord = u_shadow_vp[i] * vec4(pos, 1.0);
         shadowCoord.xyz /= shadowCoord.w;
         shadowCoord.xyz = shadowCoord.xyz * 0.5 + 0.5;
@@ -523,16 +510,13 @@ void main()
 
         vec3 radiance = u_light_colors[i] * u_light_intensity[i] * attenuation;
 
-        // Simple diffuse lighting (Lambertian)
         Lo += radiance * albedo.rgb * NdotL * shadow * ao;
     }
 
-    // Ambient term
     vec3 ambient = vec3(0.03) * albedo.rgb * ao;
 
     vec3 color = ambient + Lo;
 
-    // Gamma correction
     color = pow(color, vec3(1.0 / 2.2));
 
     FragColor = vec4(color, albedo.a);
@@ -547,8 +531,7 @@ uniform sampler2D u_normal_material_texture;
 uniform sampler2D u_metallic_roughness_texture;
 uniform sampler2D u_depth_texture;
 
-uniform mat4 u_inverse_projection_matrix;
-uniform mat4 u_inverse_view_matrix;
+uniform mat4 u_inverse_viewprojection_matrix;
 uniform vec3 u_camera_position;
 uniform vec2 u_inv_screen_size;
 
@@ -569,146 +552,146 @@ const float PI = 3.14159265359;
 
 float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
-	float a = roughness * roughness;
-	float a2 = a * a;
-	float NdotH = max(dot(N, H), 0.0);
-	float NdotH2 = NdotH * NdotH;
-	float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-	denom = PI * denom * denom;
-	return a2 / denom;
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+    return a2 / denom;
 }
 
 float GeometrySchlickGGX(float NdotV, float roughness)
 {
-	float r = (roughness + 1.0);
-	float k = (r * r) / 8.0;
-	float denom = NdotV * (1.0 - k) + k;
-	return NdotV / denom;
+    float r = (roughness + 1.0);
+    float k = (r * r) / 8.0;
+    float denom = NdotV * (1.0 - k) + k;
+    return NdotV / denom;
 }
 
 float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 {
-	float NdotV = max(dot(N, V), 0.0);
-	float NdotL = max(dot(N, L), 0.0);
-	float ggx1 = GeometrySchlickGGX(NdotV, roughness);
-	float ggx2 = GeometrySchlickGGX(NdotL, roughness);
-	return ggx1 * ggx2;
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx1 = GeometrySchlickGGX(NdotV, roughness);
+    float ggx2 = GeometrySchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
 }
 
 vec3 FresnelSchlick(float cosTheta, vec3 F0)
 {
-	return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
 void main()
 {
-	vec2 uv = gl_FragCoord.xy * u_inv_screen_size;
+    vec2 uv = gl_FragCoord.xy * u_inv_screen_size;
 
-	vec4 albedo_sample = texture(u_albedo_texture, uv);
-	vec4 normal_sample = texture(u_normal_material_texture, uv);
-	vec4 mr_sample = texture(u_metallic_roughness_texture, uv);
+    vec4 albedo_sample = texture(u_albedo_texture, uv);
+    vec4 normal_sample = texture(u_normal_material_texture, uv);
+    vec4 mr_sample = texture(u_metallic_roughness_texture, uv);
 
-	vec3 N = normalize(normal_sample.xyz);
-	float roughness = clamp(mr_sample.g, 0.05, 1.0);
-	float metallic = clamp(mr_sample.b, 0.0, 1.0);
-	float ao = mr_sample.r;
+    vec3 N = normalize(normal_sample.xyz);
+    float roughness = clamp(mr_sample.g, 0.05, 1.0);
+    float metallic = clamp(mr_sample.b, 0.0, 1.0);
+    float ao = mr_sample.r;
 
-	float depth = texture(u_depth_texture, uv).r;
-	if (length(N) < 0.001 || depth >= 0.9999)
-		discard;
+    float depth = texture(u_depth_texture, uv).r;
+    if (length(N) < 0.001 || depth >= 0.9999)
+        discard;
 
-	float depth_clip = depth * 2.0 - 1.0;
-	vec2 uv_clip = uv * 2.0 - 1.0;
-	vec4 clip_pos = vec4(uv_clip, depth_clip, 1.0);
+    float depth_clip = depth * 2.0 - 1.0;
+    vec2 uv_clip = uv * 2.0 - 1.0;
+    vec4 clip_pos = vec4(uv_clip, depth_clip, 1.0);
 
-	vec4 view_pos = u_inverse_projection_matrix * clip_pos;
-	view_pos /= view_pos.w;
-	vec4 world_pos = u_inverse_view_matrix * view_pos;
-	vec3 pos = world_pos.xyz;
+    // Use combined inverse viewprojection matrix to get world position
+    vec4 world_pos = u_inverse_viewprojection_matrix * clip_pos;
+    world_pos /= world_pos.w;
+    vec3 pos = world_pos.xyz;
 
-	vec3 V = normalize(u_camera_position - pos);
+    vec3 V = normalize(u_camera_position - pos);
 
-	vec3 F0 = vec3(0.04);
-	F0 = mix(F0, albedo_sample.rgb, metallic);
+    vec3 F0 = vec3(0.04);
+    F0 = mix(F0, albedo_sample.rgb, metallic);
 
-	vec3 Lo = vec3(0.0);
+    vec3 Lo = vec3(0.0);
 
-	for (int i = 0; i < u_num_lights; ++i)
-	{
-		vec3 L;
-		float attenuation = 1.0;
+    for (int i = 0; i < u_num_lights; ++i)
+    {
+        vec3 L;
+        float attenuation = 1.0;
 
-		if (u_light_type[i] == 1)
-		{
-			L = normalize(u_light_positions[i] - pos);
-			float dist = length(u_light_positions[i] - pos);
-			attenuation = 1.0 / (dist * dist);
-		}
-		else if (u_light_type[i] == 3)
-		{
-			L = normalize(u_light_direction[i]);
-			attenuation = 1.0;
-		}
-		else if (u_light_type[i] == 2)
-		{
-			vec3 light_to_frag = normalize(pos - u_light_positions[i]);
-			float cos_angle = dot(-light_to_frag, normalize(u_light_direction[i]));
-			float inner = 0.9;
-			float outer = 0.7;
-			float spot_smooth = clamp((cos_angle - outer) / (inner - outer), 0.0, 1.0);
+        if (u_light_type[i] == 1) // Point light
+        {
+            L = normalize(u_light_positions[i] - pos);
+            float dist = length(u_light_positions[i] - pos);
+            attenuation = 1.0 / (dist * dist);
+        }
+        else if (u_light_type[i] == 3) // Directional light
+        {
+            L = normalize(u_light_direction[i]);
+            attenuation = 1.0;
+        }
+        else if (u_light_type[i] == 2) // Spot light
+        {
+            vec3 light_to_frag = normalize(pos - u_light_positions[i]);
+            float cos_angle = dot(-light_to_frag, normalize(u_light_direction[i]));
+            float inner = 0.9;
+            float outer = 0.7;
+            float spot_smooth = clamp((cos_angle - outer) / (inner - outer), 0.0, 1.0);
 
-			L = normalize(u_light_positions[i] - pos);
-			float dist = length(u_light_positions[i] - pos);
-			attenuation = spot_smooth / (dist * dist);
-		}
+            L = normalize(u_light_positions[i] - pos);
+            float dist = length(u_light_positions[i] - pos);
+            attenuation = spot_smooth / (dist * dist);
+        }
 
-		vec3 H = normalize(V + L);
-		float NdotL = max(dot(N, L), 0.0);
-		float NdotV = max(dot(N, V), 0.0);
-		float NdotH = max(dot(N, H), 0.0);
-		float VdotH = max(dot(V, H), 0.0);
+        vec3 H = normalize(V + L);
+        float NdotL = max(dot(N, L), 0.0);
+        float NdotV = max(dot(N, V), 0.0);
+        float NdotH = max(dot(N, H), 0.0);
+        float VdotH = max(dot(V, H), 0.0);
 
-		float D = DistributionGGX(N, H, roughness);
-		float G = GeometrySmith(N, V, L, roughness);
-		vec3 F = FresnelSchlick(VdotH, F0);
+        float D = DistributionGGX(N, H, roughness);
+        float G = GeometrySmith(N, V, L, roughness);
+        vec3 F = FresnelSchlick(VdotH, F0);
 
-		vec3 numerator = D * G * F;
-		float denominator = 4.0 * NdotV * NdotL + 0.001;
-		vec3 specular = numerator / denominator;
+        vec3 numerator = D * G * F;
+        float denominator = 4.0 * NdotV * NdotL + 0.001;
+        vec3 specular = numerator / denominator;
 
-		vec3 kS = F;
-		vec3 kD = vec3(1.0) - kS;
-		kD *= (1.0 - metallic);
+        vec3 kS = F;
+        vec3 kD = vec3(1.0) - kS;
+        kD *= (1.0 - metallic);
 
-		vec3 diffuse = kD * albedo_sample.rgb / PI;
+        vec3 diffuse = kD * albedo_sample.rgb / PI;
 
-		float shadow = 1.0;
-		vec4 shadowCoord = u_shadow_vp[i] * vec4(pos, 1.0);
-		shadowCoord.xyz /= shadowCoord.w;
-		shadowCoord.xyz = shadowCoord.xyz * 0.5 + 0.5;
+        float shadow = 1.0;
+        vec4 shadowCoord = u_shadow_vp[i] * vec4(pos, 1.0);
+        shadowCoord.xyz /= shadowCoord.w;
+        shadowCoord.xyz = shadowCoord.xyz * 0.5 + 0.5;
 
-		if (shadowCoord.x >= 0.0 && shadowCoord.x <= 1.0 &&
-			shadowCoord.y >= 0.0 && shadowCoord.y <= 1.0 &&
-			shadowCoord.z >= 0.0 && shadowCoord.z <= 1.0)
-		{
-			float closestDepth = texture(u_shadow_map[i], shadowCoord.xy).r;
-			float currentDepth = shadowCoord.z - u_shadow_bias;
-			if (currentDepth > closestDepth)
-				shadow = 0.0;
-		}
+        if (shadowCoord.x >= 0.0 && shadowCoord.x <= 1.0 &&
+            shadowCoord.y >= 0.0 && shadowCoord.y <= 1.0 &&
+            shadowCoord.z >= 0.0 && shadowCoord.z <= 1.0)
+        {
+            float closestDepth = texture(u_shadow_map[i], shadowCoord.xy).r;
+            float currentDepth = shadowCoord.z - u_shadow_bias;
+            if (currentDepth > closestDepth)
+                shadow = 0.0;
+        }
 
-		vec3 radiance = u_light_colors[i] * u_light_intensity[i] * attenuation;
+        vec3 radiance = u_light_colors[i] * u_light_intensity[i] * attenuation;
 
-		Lo += (diffuse + specular) * radiance * NdotL * shadow * ao;
-	}
+        Lo += (diffuse + specular) * radiance * NdotL * shadow * ao;
+    }
 
-	vec3 ambient = vec3(0.03) * albedo_sample.rgb * ao;
+    vec3 ambient = vec3(0.03) * albedo_sample.rgb * ao;
 
-	vec3 color = ambient + Lo;
+    vec3 color = ambient + Lo;
 
-	// Tone mapping and gamma correction
-	color = color / (color + vec3(1.0));
-	color = pow(color, vec3(1.0 / 2.2));
+    // Tone mapping and gamma correction
+    color = color / (color + vec3(1.0));
+    color = pow(color, vec3(1.0 / 2.2));
 
-	FragColor = vec4(color, albedo_sample.a);
+    FragColor = vec4(color, albedo_sample.a);
 }

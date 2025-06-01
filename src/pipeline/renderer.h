@@ -8,6 +8,13 @@
 class Camera;
 class Skeleton; // If still used, otherwise can be removed if not part of Renderer's direct interface/members
 
+enum class ShaderType {
+	Unknown,
+	GBufferFill,
+	Phong,
+	Other
+};
+
 namespace GFX {
 	class Shader;
 	class Mesh;
@@ -72,7 +79,7 @@ namespace SCN {
 		void renderScene(SCN::Scene* scene, Camera* camera);
 
 		// Renders a single mesh with a material (and optional override shader)
-		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material, GFX::Shader* shader_override);
+		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material, GFX::Shader* override_shader = nullptr, ShaderType shader_type = ShaderType::Unknown);
 
 		// For UI
 		void showUI();

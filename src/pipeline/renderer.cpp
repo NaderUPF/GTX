@@ -218,7 +218,7 @@ void Renderer::renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>
 
 
 	for (const auto& command : opaque_commands) {
-		renderMeshWithMaterial(command.model, command.mesh, command.material, gbuffer_fill_shader);
+		renderMeshWithMaterial(command.model, command.mesh, command.material, gbuffer_fill_shader, ShaderType::GBufferFill);
 	}
 	GFX::checkGLErrors();
 
@@ -243,17 +243,17 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 	GFX::checkGLErrors();
 
 	// Calculate inverse screen size for shader uniform
-	vec2 window_s = CORE::getWindowSize(); // Or get from G-Buffer/Lighting FBO dimensions
-	if (window_s.x <= 0 || window_s.y <= 0) { // Fallback if window size is invalid
+	vec2 window_s = CORE::getWindowSize();
+	if (window_s.x <= 0 || window_s.y <= 0) {
 		window_s.x = static_cast<float>(gbuffer.gbuffer_fbo.width);
 		window_s.y = static_cast<float>(gbuffer.gbuffer_fbo.height);
-		if (window_s.x <= 0 || window_s.y <= 0) { // Final fallback
+		if (window_s.x <= 0 || window_s.y <= 0) {
 			window_s.x = 800; window_s.y = 600;
 		}
 	}
 	vec2 inv_screen_size(1.0f / window_s.x, 1.0f / window_s.y);
 
-	// Backup GL State (as before)
+	// Backup GL state
 	GLboolean prev_blend_enabled = glIsEnabled(GL_BLEND);
 	GLint prev_blend_eq_rgb, prev_blend_eq_alpha;
 	GLint prev_blend_src_rgb, prev_blend_dst_rgb, prev_blend_src_alpha, prev_blend_dst_alpha;
@@ -270,14 +270,14 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 	GLint prev_depth_func; glGetIntegerv(GL_DEPTH_FUNC, &prev_depth_func);
 
 	// --- POINT AND SPOT LIGHTS (Light Volumes) ---
-	GFX::Shader* light_volume_shader = GFX::Shader::Get("light_volume_deferred"); // Use new shader
+	GFX::Shader* light_volume_shader = GFX::Shader::Get("light_volume_deferred");
 	if (!light_volume_shader) {
 		std::cerr << "Light volume shader 'light_volume_deferred' not found!" << std::endl;
 	}
 	else {
 		light_volume_shader->enable();
 
-		// Set G-Buffer common textures (source for lighting calc)
+		// Set G-Buffer common textures
 		if (gbuffer.gbuffer_fbo.num_color_textures > 0 && gbuffer.gbuffer_fbo.color_textures[0]) {
 			light_volume_shader->setUniform("u_albedo_texture", gbuffer.gbuffer_fbo.color_textures[0], 0);
 		}
@@ -287,15 +287,11 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 		if (gbuffer.gbuffer_fbo.depth_texture) {
 			light_volume_shader->setUniform("u_depth_texture", gbuffer.gbuffer_fbo.depth_texture, 2);
 		}
-		GFX::checkGLErrors();
 
-		// Camera Uniforms for position reconstruction & lighting
-		Matrix44 inv_proj = camera->projection_matrix; inv_proj.inverse();
-		Matrix44 inv_view = camera->view_matrix;   inv_view.inverse();
-		light_volume_shader->setUniform("u_inverse_projection_matrix", inv_proj);
-		light_volume_shader->setUniform("u_inverse_view_matrix", inv_view);
+		// Camera Uniforms using inverse_viewprojection_matrix
+		light_volume_shader->setUniform("u_inverse_viewprojection_matrix", camera->inverse_viewprojection_matrix);
 		light_volume_shader->setUniform3("u_camera_position", camera->eye.x, camera->eye.y, camera->eye.z);
-		light_volume_shader->setUniform2("u_inv_screen_size", inv_screen_size.x, inv_screen_size.y); // Set inv screen size
+		light_volume_shader->setUniform2("u_inv_screen_size", inv_screen_size.x, inv_screen_size.y);
 
 		glEnable(GL_BLEND);
 		glBlendEquation(GL_FUNC_ADD);
@@ -307,7 +303,7 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 
 		glEnable(GL_DEPTH_TEST);
 		glDepthMask(GL_FALSE);
-		glDepthFunc(GL_GREATER); // CHANGED from GL_GEQUAL
+		glDepthFunc(GL_GREATER);
 
 		GFX::Mesh* light_volume_mesh_ptr = &sphere;
 
@@ -321,23 +317,20 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 					light->root.getGlobalMatrix().getTranslation().z);
 				light_sphere_model_matrix.scale(light->max_distance, light->max_distance, light->max_distance);
 
-				// Set uniforms for basic.vs
 				light_volume_shader->setUniform("u_model", light_sphere_model_matrix);
 				light_volume_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 
-				// Set uniforms for deferred_lighting.fs (light properties)
 				vec3 single_light_pos = light->root.getGlobalMatrix().getTranslation();
 				vec3 single_light_dir = light->root.model.frontVector();
 				int single_light_type_int_val = (light->light_type == SCN::eLightType::POINT) ? 1 : 2;
 
-				light_volume_shader->setUniform("u_num_lights", 1); // Shader expects array of 1
+				light_volume_shader->setUniform("u_num_lights", 1);
 				light_volume_shader->setUniform3("u_light_positions[0]", single_light_pos.x, single_light_pos.y, single_light_pos.z);
 				light_volume_shader->setUniform3("u_light_colors[0]", light->color.x, light->color.y, light->color.z);
 				light_volume_shader->setUniform1("u_light_intensity[0]", light->intensity);
 				light_volume_shader->setUniform3("u_light_direction[0]", single_light_dir.x, single_light_dir.y, single_light_dir.z);
 				light_volume_shader->setUniform1("u_light_type[0]", single_light_type_int_val);
 
-				// Simplified shadow part for light volumes
 				bool lv_shadow_params_set = false;
 				if (light->cast_shadows && light_volume_shader->IsUniform("u_shadow_map[0]")) {
 					for (int k = 0; k < SHADOW::active_shadow_count; ++k) {
@@ -360,14 +353,13 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 	GFX::checkGLErrors();
 
 	// --- DIRECTIONAL LIGHTS (Full-screen Quad) ---
-	GFX::Shader* deferred_dir_shader = GFX::Shader::Get("deferred_lighting"); // This is quad.vs + deferred_lighting.fs
+	GFX::Shader* deferred_dir_shader = GFX::Shader::Get("deferred_lighting");
 	if (!deferred_dir_shader) {
 		std::cerr << "Deferred directional lighting shader 'deferred_lighting' not found!" << std::endl;
 	}
 	else {
 		deferred_dir_shader->enable();
 
-		// Set G-Buffer common textures
 		if (gbuffer.gbuffer_fbo.num_color_textures > 0 && gbuffer.gbuffer_fbo.color_textures[0]) {
 			deferred_dir_shader->setUniform("u_albedo_texture", gbuffer.gbuffer_fbo.color_textures[0], 0);
 		}
@@ -378,19 +370,14 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 			deferred_dir_shader->setUniform("u_depth_texture", gbuffer.gbuffer_fbo.depth_texture, 2);
 		}
 
-		// Camera Uniforms for position reconstruction & lighting
-		Matrix44 inv_proj_dir = camera->projection_matrix; inv_proj_dir.inverse();
-		Matrix44 inv_view_dir = camera->view_matrix;   inv_view_dir.inverse();
-		deferred_dir_shader->setUniform("u_inverse_projection_matrix", inv_proj_dir);
-		deferred_dir_shader->setUniform("u_inverse_view_matrix", inv_view_dir);
+		// Pass only inverse_viewprojection_matrix here as well
+		deferred_dir_shader->setUniform("u_inverse_viewprojection_matrix", camera->inverse_viewprojection_matrix);
 		deferred_dir_shader->setUniform3("u_camera_position", camera->eye.x, camera->eye.y, camera->eye.z);
-		deferred_dir_shader->setUniform2("u_inv_screen_size", inv_screen_size.x, inv_screen_size.y); // Set inv screen size
+		deferred_dir_shader->setUniform2("u_inv_screen_size", inv_screen_size.x, inv_screen_size.y);
 
-		// For directional lights, depth test should compare against far plane or be effectively off
-		// if the quad is to cover everything. Using GL_ALWAYS. Blend is already set.
 		glCullFace(GL_BACK);
 		glFrontFace(GL_CCW);
-		glDepthFunc(GL_ALWAYS); // Directional light affects all pixels regardless of depth of the quad
+		glDepthFunc(GL_ALWAYS);
 
 		GFX::Mesh* quad_mesh_ptr = GFX::Mesh::getQuad();
 		if (quad_mesh_ptr) {
@@ -398,14 +385,13 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 				if (light->light_type == SCN::eLightType::DIRECTIONAL) {
 					vec3 single_light_dir_val = light->root.model.frontVector();
 
-					deferred_dir_shader->setUniform("u_num_lights", 1); // Shader expects array of 1
-					deferred_dir_shader->setUniform3("u_light_positions[0]", 0.0f, 0.0f, 0.0f); // Not used by directional in shader's L_dir_calc
+					deferred_dir_shader->setUniform("u_num_lights", 1);
+					deferred_dir_shader->setUniform3("u_light_positions[0]", 0.0f, 0.0f, 0.0f);
 					deferred_dir_shader->setUniform3("u_light_colors[0]", light->color.x, light->color.y, light->color.z);
 					deferred_dir_shader->setUniform1("u_light_intensity[0]", light->intensity);
 					deferred_dir_shader->setUniform3("u_light_direction[0]", single_light_dir_val.x, single_light_dir_val.y, single_light_dir_val.z);
 					deferred_dir_shader->setUniform1("u_light_type[0]", 3);
 
-					// Simplified shadow part for directional lights
 					bool dir_s_params_set = false;
 					if (light->cast_shadows && deferred_dir_shader->IsUniform("u_shadow_map[0]")) {
 						for (int k = 0; k < SHADOW::active_shadow_count; ++k) {
@@ -421,23 +407,23 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 					}
 				}
 			}
-			deferred_dir_shader->disable();
 		}
-		GFX::checkGLErrors();
-
-		lighting_fbo.unbind();
-
-		// Restore GL States (as before)
-		if (prev_blend_enabled) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-		glBlendEquationSeparate(prev_blend_eq_rgb, prev_blend_eq_alpha);
-		glBlendFuncSeparate(prev_blend_src_rgb, prev_blend_dst_rgb, prev_blend_src_alpha, prev_blend_dst_alpha);
-		if (prev_cull_face_enabled) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
-		glCullFace(prev_cull_face_mode);
-		glFrontFace(prev_front_face);
-		glDepthMask(prev_depth_writemask);
-		glDepthFunc(prev_depth_func);
-		GFX::checkGLErrors();
+		deferred_dir_shader->disable();
 	}
+	GFX::checkGLErrors();
+
+	lighting_fbo.unbind();
+
+	// Restore GL states
+	if (prev_blend_enabled) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+	glBlendEquationSeparate(prev_blend_eq_rgb, prev_blend_eq_alpha);
+	glBlendFuncSeparate(prev_blend_src_rgb, prev_blend_dst_rgb, prev_blend_src_alpha, prev_blend_dst_alpha);
+	if (prev_cull_face_enabled) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
+	glCullFace(prev_cull_face_mode);
+	glFrontFace(prev_front_face);
+	glDepthMask(prev_depth_writemask);
+	glDepthFunc(prev_depth_func);
+	GFX::checkGLErrors();
 }
 
 void Renderer::compositeLightingToScreen() {
@@ -491,7 +477,7 @@ void Renderer::renderTransparentPass(Camera* camera, const std::vector<sDrawComm
 	for (const auto& command : transparent_commands) {
 		phong_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 		phong_shader->setUniform("u_camera_position", camera->eye);
-		renderMeshWithMaterial(command.model, command.mesh, command.material, phong_shader);
+		renderMeshWithMaterial(command.model, command.mesh, command.material, phong_shader, ShaderType::Phong);
 	}
 	phong_shader->disable();
 	glDisable(GL_BLEND);
@@ -590,61 +576,61 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 }
 
 // Renders a mesh given its transform and material, optionally with a specific shader
-void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material, GFX::Shader* override_shader)
+void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material,
+	GFX::Shader* override_shader, ShaderType shader_type)
 {
 	if (!mesh || !mesh->getNumVertices() || !material || !Camera::current) return;
 	assert(glGetError() == GL_NO_ERROR);
 
 	GFX::Shader* shader_to_use = override_shader;
-	Camera* camera = Camera::current;
 
 	if (!shader_to_use) {
 		shader_to_use = GFX::Shader::Get("phong");
+		shader_type = ShaderType::Phong;
 	}
 
-	if (!shader_to_use) {
-		std::cerr << "No shader available for renderMeshWithMaterial (model: " << (mesh->name.empty() ? "unnamed" : mesh->name.c_str()) << ")" << std::endl;
-		return;
-	}
 	shader_to_use->enable();
 
 	material->bind(shader_to_use);
 	GFX::checkGLErrors();
 
-
-	// Upload common uniforms required by most shaders (like basic.vs)
 	shader_to_use->setUniform("u_model", model);
-	shader_to_use->setUniform("u_viewprojection", camera->viewprojection_matrix);
-	shader_to_use->setUniform3("u_camera_position", camera->eye.x, camera->eye.y, camera->eye.z);
+	shader_to_use->setUniform("u_viewprojection", Camera::current->viewprojection_matrix);
+	shader_to_use->setUniform3("u_camera_position", Camera::current->eye.x, Camera::current->eye.y, Camera::current->eye.z);
 	shader_to_use->setUniform1("u_time", static_cast<float>(getTime()));
 
-	// Conditional uploads: Only for relevant shaders (e.g., "phong" or lighting shaders)
-	// The G-Buffer fill shader ("gbuffer_fill") does not use lights or shadow maps directly.
-	GFX::Shader* phong_shader_ptr = GFX::Shader::Get("phong");
-	if (shader_to_use == phong_shader_ptr) {
-		// Light uniforms are uploaded by renderScene before rendering transparents.
-		// Shadow uniforms are uploaded here if the shader is phong (which uses them).
+	if (shader_type == ShaderType::GBufferFill) {
+		shader_to_use->setUniform("u_color", material->color);
+
+		GFX::Texture* albedo_tex = material->textures[SCN::eTextureChannel::ALBEDO].texture;
+		if (!albedo_tex)
+			albedo_tex = GFX::Texture::getWhiteTexture();
+		shader_to_use->setUniform("u_texture", albedo_tex, 0);
+
+		float cutoff = (material->alpha_mode == SCN::eAlphaMode::MASK) ? material->alpha_cutoff : 0.001f;
+		shader_to_use->setUniform("u_alpha_cutoff", cutoff);
+	}
+
+	if (shader_type == ShaderType::Phong) {
 		if (shader_to_use->IsUniform("u_shadow_map[0]")) {
 			int shadow_maps_to_bind = std::min<int>(SHADOW::active_shadow_count, 10);
 			for (int i = 0; i < shadow_maps_to_bind; ++i) {
 				std::string shadow_map_name = "u_shadow_map[" + std::to_string(i) + "]";
 				std::string shadow_vp_name = "u_shadow_vp[" + std::to_string(i) + "]";
 				if (SHADOW::getShadowMap(i)) {
-					shader_to_use->setUniform(shadow_map_name.c_str(), SHADOW::getShadowMap(i), 8 + i); // Ensure texture units don't clash
+					shader_to_use->setUniform(shadow_map_name.c_str(), SHADOW::getShadowMap(i), 8 + i);
 				}
 				shader_to_use->setUniform(shadow_vp_name.c_str(), SHADOW::getLightCamera(i).viewprojection_matrix);
 			}
 			shader_to_use->setUniform("u_shadow_bias", SHADOW::getShadowBias());
 		}
 	}
-	GFX::checkGLErrors();
 
 	if (render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 	mesh->render(GL_TRIANGLES);
 	GFX::checkGLErrors();
-
 
 	if (render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
