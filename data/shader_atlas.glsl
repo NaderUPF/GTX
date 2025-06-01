@@ -34,6 +34,9 @@ light_volume_deferred basic.vs deferred_lighting.fs
 pbr_gbuffer_fill basic.vs pbr_gbuffer_fill.fs
 pbr_deferred_lighting quad.vs pbr_deferred_lighting.fs
 
+// HDR
+tonemapper quad.vs tonemapper.fs
+
 \test.cs
 #version 430 core
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
@@ -390,8 +393,12 @@ void main()
 	vec4 albedo_sample = texture(u_albedo_texture, v_uv);
 	vec4 mr_sample = texture(u_metallic_roughness_texture, v_uv);
 
-	vec4 final_color = u_color * albedo_sample;
-
+    // Convert from sRGB (gamma) to linear space
+    vec3 albedo_linear = pow(albedo_sample.rgb, vec3(2.2));
+    vec3 final_color_rgb = u_color.rgb * albedo_linear;
+    float final_alpha = u_color.a * albedo_sample.a;
+    vec4 final_color = vec4(final_color_rgb, final_alpha);
+    
 	if(final_color.a < u_alpha_cutoff)
 		discard;
 
@@ -437,6 +444,7 @@ void main()
     vec2 uv = gl_FragCoord.xy * u_inv_screen_size;
 
     vec4 albedo = texture(u_albedo_texture, uv);
+    
     vec4 normal_material = texture(u_normal_material_texture, uv);
     float depth = texture(u_depth_texture, uv).r;
 
@@ -587,7 +595,10 @@ void main()
 {
     vec2 uv = gl_FragCoord.xy * u_inv_screen_size;
 
-    vec4 albedo_sample = texture(u_albedo_texture, uv);
+    vec4 albedo_sample_srgb = texture(u_albedo_texture, uv);
+    vec3 albedo = pow(albedo_sample_srgb.rgb, vec3(2.2)); // Convert sRGB -> linear
+    float alpha = albedo_sample_srgb.a;
+
     vec4 normal_sample = texture(u_normal_material_texture, uv);
     vec4 mr_sample = texture(u_metallic_roughness_texture, uv);
 
@@ -612,7 +623,7 @@ void main()
     vec3 V = normalize(u_camera_position - pos);
 
     vec3 F0 = vec3(0.04);
-    F0 = mix(F0, albedo_sample.rgb, metallic);
+    F0 = mix(F0, albedo, metallic);
 
     vec3 Lo = vec3(0.0);
 
@@ -663,7 +674,7 @@ void main()
         vec3 kD = vec3(1.0) - kS;
         kD *= (1.0 - metallic);
 
-        vec3 diffuse = kD * albedo_sample.rgb / PI;
+        vec3 diffuse = kD * albedo / PI;
 
         float shadow = 1.0;
         vec4 shadowCoord = u_shadow_vp[i] * vec4(pos, 1.0);
@@ -685,13 +696,42 @@ void main()
         Lo += (diffuse + specular) * radiance * NdotL * shadow * ao;
     }
 
-    vec3 ambient = vec3(0.03) * albedo_sample.rgb * ao;
+    vec3 ambient = vec3(0.03) * albedo * ao;
 
     vec3 color = ambient + Lo;
 
     // Tone mapping and gamma correction
-    color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / 2.2));
+    // color = color / (color + vec3(1.0));
+    // color = pow(color, vec3(1.0 / 2.2));
 
-    FragColor = vec4(color, albedo_sample.a);
+    FragColor = vec4(color, alpha);
+}
+
+\tonemapper.fs
+#version 330 core
+in vec2 v_uv;
+uniform sampler2D u_texture;
+layout(location = 0) out vec4 out_color;
+
+const float A = 0.15;
+const float B = 0.50;
+const float C = 0.10;
+const float D = 0.20;
+const float E = 0.02;
+const float F = 0.30;
+const float W = 11.2;
+
+vec3 gamma(vec3 color) {
+    return pow(color, vec3(1.0/2.2));
+}
+
+vec3 Uncharted2TonemapPartial(vec3 x) {
+    return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
+}
+
+void main() {
+    vec3 color = texture(u_texture, v_uv).rgb;
+    vec3 tonemapped = Uncharted2TonemapPartial(color * 2.0);
+    vec3 white_scale = vec3(1.0) / Uncharted2TonemapPartial(vec3(W));
+    out_color = vec4(gamma(tonemapped * white_scale), 1.0);
 }

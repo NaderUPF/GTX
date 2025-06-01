@@ -70,9 +70,10 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	// Create the lighting FBO: 1 color texture (RGBA8), and a depth texture (for depth testing using G-Buffer's depth)
 	// The depth texture here is primarily for the FBO structure; its content will be copied from gbuffer.
-	if (!lighting_fbo.create(screen_w, screen_h, 1, GL_RGBA, GL_UNSIGNED_BYTE, true)) {
+	if (!lighting_fbo.create(screen_w, screen_h, 1, GL_RGBA, GL_FLOAT, true)) {
 		std::cerr << "Error: Failed to create lighting_fbo." << std::endl;
 	}
+
 	GFX::checkGLErrors();
 	SHADOW::initShadowMap(1024, 0);
 	SHADOW::initShadowMap(1024, 1);
@@ -433,24 +434,30 @@ void Renderer::compositeLightingToScreen() {
 	glDisable(GL_DEPTH_TEST); // No depth test for full-screen blit
 	glDisable(GL_BLEND);      // Direct copy, no blending (or use GL_ONE, GL_ZERO if needed)
 
-	GFX::Shader* tex_shader = GFX::Shader::Get("texture");
-	if (!tex_shader) {
-		std::cerr << "Texture shader for composition not found!" << std::endl;
-		return;
-	}
-	if (lighting_fbo.num_color_textures == 0 || lighting_fbo.color_textures[0] == nullptr) {
-		std::cerr << "Lighting FBO color texture is missing for composition!" << std::endl;
-		return;
-	}
+	// GFX::Shader* tex_shader = GFX::Shader::Get("texture");
+	// if (!tex_shader) {
+	// 	std::cerr << "Texture shader for composition not found!" << std::endl;
+	// 	return;
+	// }
 
-	tex_shader->enable();
-	tex_shader->setUniform("u_color", Vector4f(1, 1, 1, 1)); // Ensure no tint
-	tex_shader->setUniform("u_texture", lighting_fbo.color_textures[0], 0);
+    GFX::Shader* tonemapper_shader = GFX::Shader::Get("tonemapper");
+    if (!tonemapper_shader) {
+        std::cerr << "Tonemapper shader not found!" << std::endl;
+        return;
+    }
+
+    if (lighting_fbo.num_color_textures == 0 || lighting_fbo.color_textures[0] == nullptr) {
+        std::cerr << "Lighting FBO texture missing!" << std::endl;
+        return;
+    }
+
+    tonemapper_shader->enable();
+    tonemapper_shader->setUniform("u_texture", lighting_fbo.color_textures[0], 0);
 
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
 	if (quad) quad->render(GL_TRIANGLES);
 
-	tex_shader->disable();
+	tonemapper_shader->disable();
 	GFX::checkGLErrors();
 }
 
