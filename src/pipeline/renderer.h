@@ -90,7 +90,7 @@ namespace SCN {
 
 		// New private helper methods for pipeline stages
 		void renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>& opaque_commands);
-		void renderDeferredLightingPass(Camera* camera, const std::vector<SCN::LightEntity*>& lights);
+		void renderDeferredLightingPass(Camera* camera);
 		void renderTransparentPass(Camera* camera, const std::vector<sDrawCommand>& transparent_commands, const std::vector<SCN::LightEntity*>& lights);
 		void compositeLightingToScreen();
 	};

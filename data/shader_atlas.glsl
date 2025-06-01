@@ -24,11 +24,8 @@ plain basic.vs plain.fs
 // G-BUFFER FILL SHADER
 gbuffer_fill basic.vs gbuffer_fill.fs
 
-// DEFERRED LIGHTING SHADER (used for directional lights with quad.vs, and point/spot with basic.vs)
-deferred_lighting quad.vs deferred_lighting.fs
-
-// NEW SHADER PROGRAM FOR POINT/SPOT LIGHT VOLUMES
-light_volume_deferred basic.vs deferred_lighting.fs
+// DEFERRED & VOLUME LIGHTING SHADER 
+deferred_lighting deferred.vs deferred_lighting.fs
 
 // A5: TASK 2.2 - Add PBR G-Buffer and deferred lighting shaders
 pbr_gbuffer_fill basic.vs pbr_gbuffer_fill.fs
@@ -106,6 +103,33 @@ void main()
 		discard;
 	FragColor = color;
 }
+
+\deferred.fs
+#version 330 core
+
+uniform int u_is_quad;                // 1 = fullscreen quad, 0 = light volume
+uniform mat4 u_model;                 // model matrix for light volumes
+uniform mat4 u_viewprojection;       // view-projection matrix for light volumes
+
+in vec3 a_vertex;
+in vec2 a_coord;
+
+out vec2 v_uv;
+
+void main()
+{
+    if (u_is_quad == 1) {
+        // Fullscreen quad rendering in clip space
+        v_uv = a_coord;
+        gl_Position = vec4(a_vertex, 1.0);
+    } else {
+        // Light volume rendering: transform vertex normally
+        vec3 world_pos = (u_model * vec4(a_vertex, 1.0)).xyz;
+        gl_Position = u_viewprojection * vec4(world_pos, 1.0);
+        v_uv = a_coord;  // pass UV if needed (e.g., for attenuation maps)
+    }
+}
+
 
 \flat.fs
 #version 330 core
