@@ -39,6 +39,7 @@ tonemapper quad.vs tonemapper.fs
 
 //BLOOM
 bloom_pass quad.vs bloom_pass.fs
+blur_neighbors quad.vs blur_neighbors.fs
 
 
 \test.cs

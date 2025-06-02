@@ -85,7 +85,7 @@ namespace SCN {
 		void showUI();
 
 		//bloom
-	    int bloom_iterations = 3;
+	    int bloom_iterations = 8;
 		float bloom_threshold = 0.45f;
 		float bloom_soft_threshold = 0.5f;  
 		float bloom_intensity = 1.0f;    

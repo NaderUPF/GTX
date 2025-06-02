@@ -577,6 +577,8 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
         float knee = bloom_threshold * bloom_soft_threshold;
         vec4 filter = vec4(bloom_threshold, bloom_threshold - knee, 2.0f * knee, 0.25f / (knee + 0.00001f));
 
+		glDisable(GL_DEPTH_TEST);
+
         // 2) Extract bright pixels (Prefilter pass)
         GFX::Shader* bloom_shader = GFX::Shader::Get("bloom_pass");
         bloom_shader->enable();
@@ -584,7 +586,7 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 		bloom_shader->setUniform("_Filter", filter);
 		bloom_shader->setUniform("u_intensity", bloom_intensity);
         bloom_samples[0]->bind();
-        glViewport(0, 0, bloom_samples[0]->width, bloom_samples[0]->height);
+        //glViewport(0, 0, bloom_samples[0]->width, bloom_samples[0]->height);
         glClear(GL_COLOR_BUFFER_BIT);
         GFX::Mesh::getQuad()->render(GL_TRIANGLES);
         bloom_samples[0]->unbind();
@@ -595,7 +597,7 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
         blur_shader->enable();
         for (int i = 1; i < this->bloom_iterations; ++i) {
             bloom_samples[i]->bind();
-            glViewport(0, 0, bloom_samples[i]->width, bloom_samples[i]->height);
+            //glViewport(0, 0, bloom_samples[i]->width, bloom_samples[i]->height);
             blur_shader->setUniform("u_raw", bloom_samples[i - 1]->color_textures[0], 0);
             blur_shader->setUniform("u_invRes", vec2(1.0f / static_cast<float>(bloom_samples[i - 1]->width),
                                                     1.0f / static_cast<float>(bloom_samples[i - 1]->height)));
@@ -612,7 +614,7 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
         glBlendFunc(GL_ONE, GL_ONE); // Additive blend as per tutorial
         for (int i = this->bloom_iterations - 2; i >= 0; --i) {
             bloom_samples[i]->bind();
-            glViewport(0, 0, bloom_samples[i]->width, bloom_samples[i]->height);
+            //glViewport(0, 0, bloom_samples[i]->width, bloom_samples[i]->height);
             blur_shader->setUniform("u_raw", bloom_samples[i + 1]->color_textures[0], 0);
             blur_shader->setUniform("u_invRes", vec2(1.0f / static_cast<float>(bloom_samples[i + 1]->width),
                                                     1.0f / static_cast<float>(bloom_samples[i + 1]->height)));
@@ -627,11 +629,13 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
         // 5) Blend final bloom to lighting_fbo
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE); // Additive blending
-        lighting_fbo.bind();
+        //lighting_fbo.bind();
         bloom_samples[0]->color_textures[0]->toViewport();
-        lighting_fbo.unbind();
+        //lighting_fbo.unbind();
         glDisable(GL_BLEND);
     }
+
+	return;
 
 	//lighting_fbo.color_textures[0]->toViewport();
 	compositeLightingToScreen(); // Blits lighting_fbo result to main screen
