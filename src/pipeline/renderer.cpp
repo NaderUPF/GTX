@@ -553,6 +553,18 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
                 if (w < 1) w = 1;
                 if (h < 1) h = 1;
                 bool created = fbo->create(w, h, 1, GL_RGBA, GL_FLOAT, false);
+				//ensure smooth interpolation on sampling
+				if (created) {
+					GFX::Texture* tex = fbo->color_textures[0];
+					if (tex) {
+						tex->bind();
+						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+						tex->unbind();
+					}
+				}
 
                 if (!created) {
                     std::cerr << "Failed to create bloom FBO at mip level " << i << " (" << w << "x" << h << ")\n";
