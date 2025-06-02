@@ -37,6 +37,10 @@ pbr_deferred_lighting quad.vs pbr_deferred_lighting.fs
 // HDR
 tonemapper quad.vs tonemapper.fs
 
+//BLOOM
+bloom_pass quad.vs bloom_pass.fs
+
+
 \test.cs
 #version 430 core
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
@@ -734,4 +738,60 @@ void main() {
     vec3 tonemapped = Uncharted2TonemapPartial(color * 2.0);
     vec3 white_scale = vec3(1.0) / Uncharted2TonemapPartial(vec3(W));
     out_color = vec4(gamma(tonemapped * white_scale), 1.0);
+}
+
+\bloom_pass.fs
+#version 330 core
+
+in vec2 v_uv;
+
+uniform sampler2D u_render;
+// uniform float u_threshold;
+// uniform vec2 u_invRes;
+uniform vec4 _Filter;  // x = threshold, y = threshold - knee, z = 2 * knee, w = 0.25 / (knee + 0.00001)
+
+out vec4 FragColor;
+
+vec3 Prefilter(vec3 c) {
+    float brightness = max(max(c.r, c.g), c.b);
+    float soft = brightness - _Filter.y;
+    soft = clamp(soft, 0.0, _Filter.z);
+    soft = soft * soft * _Filter.w;
+    float contribution = max(soft, brightness - _Filter.x);
+    contribution /= max(brightness, 0.00001);
+    return c * contribution;
+}
+
+void main() {
+    vec4 color = texture(u_render, v_uv);
+    vec3 filtered = Prefilter(color.rgb);
+    float intensity = max(max(filtered.r, filtered.g), filtered.b);
+    if (intensity <= 0.0) discard;
+    FragColor = vec4(filtered, 1.0);
+}
+
+\blur_neighbors.fs
+#version 330 core
+
+in vec2 v_uv;
+
+uniform sampler2D u_raw;
+uniform vec2 u_invRes;
+uniform float u_intensity;
+
+out vec4 FragColor;
+
+vec4 SampleBox(vec2 uv, float delta) {
+    vec2 offset = u_invRes * delta;
+    vec4 sum = vec4(0.0);
+    sum += texture(u_raw, uv + vec2(-2.0 * offset.x, 0.0)) * 0.1216216;
+    sum += texture(u_raw, uv + vec2(-1.0 * offset.x, 0.0)) * 0.2332432;
+    sum += texture(u_raw, uv) * 0.2909139;
+    sum += texture(u_raw, uv + vec2(1.0 * offset.x, 0.0)) * 0.2332432;
+    sum += texture(u_raw, uv + vec2(2.0 * offset.x, 0.0)) * 0.1216216;
+    return sum;
+}
+
+void main() {
+    FragColor = u_intensity * SampleBox(v_uv, 1.0);
 }

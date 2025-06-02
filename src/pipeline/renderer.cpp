@@ -23,6 +23,8 @@
 
 std::vector<sDrawCommand> draw_command_list;
 std::vector<SCN::LightEntity*> light_list; // A2: TASK 1 - Light List
+static vec2 prevScreenSize = vec2(0, 0); //bloom FBO recreation
+
 
 using namespace SCN;
 
@@ -533,6 +535,104 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 	renderDeferredLightingPass(camera, local_light_list); // Renders into lighting_fbo
 	GFX::checkGLErrors();
 
+
+    if (this->use_bloom) {
+
+        vec2 size = vec2(static_cast<float>(lighting_fbo.width), static_cast<float>(lighting_fbo.height));
+
+        // 1) Recreate bloom FBOs if needed
+        if (this->bloom_samples.size() != this->bloom_iterations || prevScreenSize.x != size.x || prevScreenSize.y != size.y) {
+            for (auto* fbo : this->bloom_samples)
+                delete fbo;
+            this->bloom_samples.clear();
+
+            for (int i = 0; i < this->bloom_iterations; ++i) {
+                GFX::FBO* fbo = new GFX::FBO();
+                int w = static_cast<int>(size.x) / (1 << i);
+                int h = static_cast<int>(size.y) / (1 << i);
+                if (w < 1) w = 1;
+                if (h < 1) h = 1;
+                bool created = fbo->create(w, h, 1, GL_RGBA, GL_FLOAT, false);
+
+                if (!created) {
+                    std::cerr << "Failed to create bloom FBO at mip level " << i << " (" << w << "x" << h << ")\n";
+                    delete fbo;
+                    fbo = nullptr;
+                    for (auto* old_fbo : this->bloom_samples)
+                        delete old_fbo;
+                    this->bloom_samples.clear();
+                    break;
+                }
+                this->bloom_samples.push_back(fbo);
+            }
+            prevScreenSize = size;
+        }
+
+        if (this->bloom_samples.empty() || !this->bloom_samples[0] || !this->bloom_samples[0]->color_textures[0]) {
+            std::cerr << "Error: bloom_samples or bloom texture 0 is null! Skipping bloom pass.\n";
+            return;
+        }
+
+        // Compute filter parameters for bloom threshold and soft threshold (knee)
+        float knee = bloom_threshold * bloom_soft_threshold;
+        vec4 filter = vec4(bloom_threshold, bloom_threshold - knee, 2.0f * knee, 0.25f / (knee + 0.00001f));
+
+        // 2) Extract bright pixels (Prefilter pass)
+        GFX::Shader* bloom_shader = GFX::Shader::Get("bloom_pass");
+        bloom_shader->enable();
+        bloom_shader->setUniform("u_render", this->lighting_fbo.color_textures[0], 0);
+		bloom_shader->setUniform("_Filter", filter);
+		bloom_shader->setUniform("u_intensity", bloom_intensity);
+        bloom_samples[0]->bind();
+        glViewport(0, 0, bloom_samples[0]->width, bloom_samples[0]->height);
+        glClear(GL_COLOR_BUFFER_BIT);
+        GFX::Mesh::getQuad()->render(GL_TRIANGLES);
+        bloom_samples[0]->unbind();
+        bloom_shader->disable();
+
+        // 3) Downsample and blur iteratively
+        GFX::Shader* blur_shader = GFX::Shader::Get("blur_neighbors");
+        blur_shader->enable();
+        for (int i = 1; i < this->bloom_iterations; ++i) {
+            bloom_samples[i]->bind();
+            glViewport(0, 0, bloom_samples[i]->width, bloom_samples[i]->height);
+            blur_shader->setUniform("u_raw", bloom_samples[i - 1]->color_textures[0], 0);
+            blur_shader->setUniform("u_invRes", vec2(1.0f / static_cast<float>(bloom_samples[i - 1]->width),
+                                                    1.0f / static_cast<float>(bloom_samples[i - 1]->height)));
+            blur_shader->setUniform("u_intensity", bloom_intensity);
+            glClear(GL_COLOR_BUFFER_BIT);
+            GFX::Mesh::getQuad()->render(GL_TRIANGLES);
+            bloom_samples[i]->unbind();
+        }
+        blur_shader->disable();
+
+        // 4) Upsample and blend additively
+        blur_shader->enable();
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE); // Additive blend as per tutorial
+        for (int i = this->bloom_iterations - 2; i >= 0; --i) {
+            bloom_samples[i]->bind();
+            glViewport(0, 0, bloom_samples[i]->width, bloom_samples[i]->height);
+            blur_shader->setUniform("u_raw", bloom_samples[i + 1]->color_textures[0], 0);
+            blur_shader->setUniform("u_invRes", vec2(1.0f / static_cast<float>(bloom_samples[i + 1]->width),
+                                                    1.0f / static_cast<float>(bloom_samples[i + 1]->height)));
+            blur_shader->setUniform("u_intensity", bloom_intensity);
+            glClear(GL_COLOR_BUFFER_BIT);
+            GFX::Mesh::getQuad()->render(GL_TRIANGLES);
+            bloom_samples[i]->unbind();
+        }
+        glDisable(GL_BLEND);
+        blur_shader->disable();
+
+        // 5) Blend final bloom to lighting_fbo
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE); // Additive blending
+        lighting_fbo.bind();
+        bloom_samples[0]->color_textures[0]->toViewport();
+        lighting_fbo.unbind();
+        glDisable(GL_BLEND);
+    }
+
 	//lighting_fbo.color_textures[0]->toViewport();
 	compositeLightingToScreen(); // Blits lighting_fbo result to main screen
 	GFX::checkGLErrors();
@@ -661,6 +761,15 @@ void Renderer::showUI()
 	if (ImGui::Checkbox("Front Face Culling (Shadows)", &current_cull)) {
 		SHADOW::setFrontFaceCulling(current_cull);
 	}
+
+	ImGui::Checkbox("Activate bloom", &use_bloom);
+	ImGui::DragFloat("Bloom threshold", &bloom_threshold, 0.01f, 0.01f, 2.0f);
+	ImGui::DragInt("Bloom iterations", &bloom_iterations, 1, 1, 10);   
+
+	ImGui::DragFloat("Bloom Soft Threshold", &bloom_soft_threshold, 0.01f, 0.0f, 1.0f);
+	ImGui::DragFloat("Bloom Intensity", &bloom_intensity, 0.01f, 0.0f, 10.0f);
+
+
 }
 
 #else
