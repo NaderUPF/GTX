@@ -582,6 +582,7 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
         // 2) Extract bright pixels (Prefilter pass)
         GFX::Shader* bloom_shader = GFX::Shader::Get("bloom_pass");
         bloom_shader->enable();
+		
         bloom_shader->setUniform("u_render", this->lighting_fbo.color_textures[0], 0);
 		bloom_shader->setUniform("_Filter", filter);
 		bloom_shader->setUniform("u_intensity", bloom_intensity);
@@ -619,7 +620,7 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
             blur_shader->setUniform("u_invRes", vec2(1.0f / static_cast<float>(bloom_samples[i + 1]->width),
                                                     1.0f / static_cast<float>(bloom_samples[i + 1]->height)));
             blur_shader->setUniform("u_intensity", bloom_intensity);
-            glClear(GL_COLOR_BUFFER_BIT);
+            //glClear(GL_COLOR_BUFFER_BIT);
             GFX::Mesh::getQuad()->render(GL_TRIANGLES);
             bloom_samples[i]->unbind();
         }
