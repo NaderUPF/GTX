@@ -72,7 +72,7 @@ uniform float u_time;
 
 void main()
 {	
-	v_normal = (u_model * vec4(a_normal, 0.0)).xyz;
+	v_normal = normalize((u_model * vec4(a_normal, 0.0)).xyz);
 	v_position = a_vertex;
 	v_world_position = (u_model * vec4(v_position, 1.0)).xyz;
 	v_color = a_color;
@@ -385,6 +385,7 @@ in vec3 v_normal;
 in vec2 v_uv;
 
 uniform sampler2D u_albedo_texture;
+uniform sampler2D u_normal_texture;                 // NEW normal map texture
 uniform sampler2D u_metallic_roughness_texture;
 
 uniform vec4 u_color;
@@ -392,26 +393,46 @@ uniform float u_alpha_cutoff;
 
 layout(location = 0) out vec4 out_gbuffer_albedo;
 layout(location = 1) out vec4 out_gbuffer_normal;
+layout(location = 2) out vec4 out_gbuffer_metallic_roughness;
 
 void main()
 {
-	vec4 albedo_sample = texture(u_albedo_texture, v_uv);
-	vec4 mr_sample = texture(u_metallic_roughness_texture, v_uv);
+    vec4 albedo_sample = texture(u_albedo_texture, v_uv);
+    vec3 normal_sample = texture(u_normal_texture, v_uv).rgb;  // Sample normal map (assumed in tangent space)
 
-    // Convert from sRGB (gamma) to linear space
+    // Transform sampled normal from [0,1] to [-1,1]
+    vec3 normal_tangent = normalize(normal_sample * 2.0 - 1.0);
+
+    // For correct lighting, transform tangent space normal to world space:
+    // This requires tangent, bitangent, normal vectors per vertex.
+    // For now, assuming v_normal is world normal, build TBN matrix:
+    vec3 N = normalize(v_normal);
+    vec3 T = normalize(dFdx(v_world_position));  // Approximate tangent (better if passed as attribute)
+    vec3 B = normalize(dFdy(v_world_position));  // Approximate bitangent
+
+    mat3 TBN = mat3(T, B, N);
+    vec3 normal_world = normalize(TBN * normal_tangent);
+
+    vec4 mr_sample = texture(u_metallic_roughness_texture, v_uv);
+
+    // Convert from sRGB to linear color space for albedo
     vec3 albedo_linear = pow(albedo_sample.rgb, vec3(2.2));
     vec3 final_color_rgb = u_color.rgb * albedo_linear;
     float final_alpha = u_color.a * albedo_sample.a;
     vec4 final_color = vec4(final_color_rgb, final_alpha);
-    
-	if(final_color.a < u_alpha_cutoff)
-		discard;
 
-	out_gbuffer_albedo = final_color;
-	out_gbuffer_normal = vec4(normalize(v_normal), 1.0);
+    if(final_color.a < u_alpha_cutoff)
+        discard;
 
-	// Note: Roughness, metallic, and AO can be packed in other targets or alpha channels if needed
+    out_gbuffer_albedo = final_color;
+
+    // Output the normal from normal map in world space
+    out_gbuffer_normal = vec4(normal_world, 1.0);
+
+    out_gbuffer_metallic_roughness = vec4(mr_sample.r, mr_sample.g, mr_sample.b, 1.0);
 }
+
+
 
 \deferred_lighting.fs
 #version 330 core

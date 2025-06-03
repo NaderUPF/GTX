@@ -113,6 +113,9 @@ namespace GFX {
 		static int default_min_filter;
 		static FBO* global_fbo;
 
+		static Texture* getDefaultNormalTexture();
+		static Texture* getDefaultMetallicRoughnessTexture();
+
 		//a general struct to store all the information about a TGA file
 
 		//textures manager

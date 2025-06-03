@@ -79,12 +79,18 @@ void Material::bind(GFX::Shader* shader) {
         shader->setUniform("u_albedo_texture", albedo_tex, 0);
 
     GFX::Texture* normal_tex = textures[SCN::eTextureChannel::NORMALMAP].texture;
-    if (normal_tex && shader->IsUniform("u_normal_material_texture"))
-        shader->setUniform("u_normal_material_texture", normal_tex, 1);
+    if (!normal_tex)
+        normal_tex = GFX::Texture::getDefaultNormalTexture();  // Provide default flat normal map if none
+    if (shader->IsUniform("u_normal_texture"))
+        shader->setUniform("u_normal_texture", normal_tex, 2);  // texture unit 2
 
+    // Metallic roughness texture (new!)
     GFX::Texture* mr_tex = textures[SCN::eTextureChannel::METALLIC_ROUGHNESS].texture;
-    if (mr_tex && shader->IsUniform("u_metallic_roughness_texture"))
-        shader->setUniform("u_metallic_roughness_texture", mr_tex, 2);
+    if (!mr_tex)
+        mr_tex = GFX::Texture::getDefaultMetallicRoughnessTexture(); // You may want to create a default one
+    if (shader->IsUniform("u_metallic_roughness_texture"))
+        shader->setUniform("u_metallic_roughness_texture", mr_tex, 1); // texture unit 1
+
 
     if (shader->IsUniform("u_roughness_factor"))
         shader->setUniform("u_roughness_factor", roughness_factor);

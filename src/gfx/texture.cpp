@@ -143,6 +143,31 @@ namespace GFX
 		sTexturesLoaded.clear();
 	}
 
+	static Texture* default_normal_texture = nullptr;
+	static Texture* default_metallic_roughness_texture = nullptr;
+
+	Texture* Texture::getDefaultNormalTexture() {
+		if (default_normal_texture) return default_normal_texture;
+
+		// Create 1x1 RGB texture with flat normal color (0.5, 0.5, 1.0)
+		unsigned char data[3] = { 128, 128, 255 };
+		default_normal_texture = new Texture();
+		default_normal_texture->create(1, 1, GL_RGB, GL_UNSIGNED_BYTE, false, data);
+
+		return default_normal_texture;
+	}
+
+	Texture* Texture::getDefaultMetallicRoughnessTexture() {
+		if (default_metallic_roughness_texture) return default_metallic_roughness_texture;
+
+		// Create 1x1 RGB texture with AO=1, Roughness=1, Metallic=0 (255,255,0)
+		unsigned char data[3] = { 255, 255, 0 };
+		default_metallic_roughness_texture = new Texture();
+		default_metallic_roughness_texture->create(1, 1, GL_RGB, GL_UNSIGNED_BYTE, false, data);
+
+		return default_metallic_roughness_texture;
+	}
+
 	void Texture::debugInMenu()
 	{
 #ifdef IMGUI

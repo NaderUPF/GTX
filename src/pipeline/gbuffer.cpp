@@ -21,7 +21,7 @@ void GBuffer::create(int width, int height) {
     // Create the FBO with 2 RGBA8 color textures and a depth texture
     bool success = gbuffer_fbo.create(width,
                        height,
-                       2,                // num_textures: Albedo and Normal_Material
+                       3,                // num_textures: Albedo and Normal_Material
                        GL_RGBA,          
                        GL_UNSIGNED_BYTE, 
                        true);            // use_depth_texture
