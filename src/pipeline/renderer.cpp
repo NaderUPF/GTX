@@ -29,7 +29,7 @@ static vec2 prevScreenSize = vec2(0, 0); //bloom FBO recreation
 using namespace SCN;
 
 GFX::Mesh sphere;
-GFX::FBO gbuffer_fbo;
+GFX::FBO gbuffer_fbo; // This will be SCN::Renderer::gbuffer.gbuffer_fbo
 
 Renderer::Renderer(const char* shader_atlas_filename)
 {
@@ -71,6 +71,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	GFX::checkGLErrors();
 
 	// Create the lighting FBO: 1 color texture (RGBA8), and a depth texture (for depth testing using G-Buffer's depth)
+	// The depth texture here is primarily for the FBO structure; its content will be copied from gbuffer.
 	if (!lighting_fbo.create(screen_w, screen_h, 1, GL_RGBA, GL_FLOAT, true)) {
 		std::cerr << "Error: Failed to create lighting_fbo." << std::endl;
 	}
@@ -207,7 +208,7 @@ void Renderer::renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>
 		GFX::checkGLErrors();
 	}
 
-	GFX::Shader* gbuffer_fill_shader = GFX::Shader::Get("pbr_gbuffer_fill");
+	GFX::Shader* gbuffer_fill_shader = GFX::Shader::Get("gbuffer_fill");
 	if (!gbuffer_fill_shader) {
 		std::cerr << "GBuffer fill shader 'gbuffer_fill' not found!" << std::endl;
 		gbuffer.gbuffer_fbo.unbind();
@@ -227,17 +228,10 @@ void Renderer::renderGBufferPass(Camera* camera, const std::vector<sDrawCommand>
 	gbuffer.gbuffer_fbo.unbind();
 }
 
+// renderDeferredLightingPass now renders into lighting_fbo
 void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN::LightEntity*>& lights) {
 	if (gbuffer.gbuffer_fbo.depth_texture && lighting_fbo.depth_texture) {
 		gbuffer.gbuffer_fbo.depth_texture->copyTo(lighting_fbo.depth_texture);
-		GFX::checkGLErrors();
-	}
-	else if (gbuffer.gbuffer_fbo.depth_texture) {
-		lighting_fbo.depth_texture = gbuffer.gbuffer_fbo.depth_texture; // Use G-Buffer's depth texture directly
-		GFX::checkGLErrors();
-	}
-	else if (lighting_fbo.depth_texture) {
-		// If lighting_fbo already has a depth texture, we can skip copying
 		GFX::checkGLErrors();
 	}
 	else {
@@ -362,34 +356,24 @@ void Renderer::renderDeferredLightingPass(Camera* camera, const std::vector<SCN:
 	GFX::checkGLErrors();
 
 	// --- DIRECTIONAL LIGHTS (Full-screen Quad) ---
-	GFX::Shader* deferred_dir_shader = GFX::Shader::Get("pbr_deferred_lighting");
+	GFX::Shader* deferred_dir_shader = GFX::Shader::Get("deferred_lighting");
 	if (!deferred_dir_shader) {
-		std::cerr << "PBR deferred lighting shader 'pbr_deferred_lighting' not found!" << std::endl;
+		std::cerr << "Deferred directional lighting shader 'deferred_lighting' not found!" << std::endl;
 	}
 	else {
 		deferred_dir_shader->enable();
 
-		// Bind albedo texture to unit 0
 		if (gbuffer.gbuffer_fbo.num_color_textures > 0 && gbuffer.gbuffer_fbo.color_textures[0]) {
 			deferred_dir_shader->setUniform("u_albedo_texture", gbuffer.gbuffer_fbo.color_textures[0], 0);
 		}
-
-		// Bind normal texture to unit 1
 		if (gbuffer.gbuffer_fbo.num_color_textures > 1 && gbuffer.gbuffer_fbo.color_textures[1]) {
 			deferred_dir_shader->setUniform("u_normal_material_texture", gbuffer.gbuffer_fbo.color_textures[1], 1);
 		}
-
-		// Bind metallic_roughness texture to unit 2
-		if (gbuffer.gbuffer_fbo.num_color_textures > 2 && gbuffer.gbuffer_fbo.color_textures[2]) {
-			deferred_dir_shader->setUniform("u_metallic_roughness_texture", gbuffer.gbuffer_fbo.color_textures[2], 2);
-		}
-
-		// Bind depth texture to unit 3
 		if (gbuffer.gbuffer_fbo.depth_texture) {
-			deferred_dir_shader->setUniform("u_depth_texture", gbuffer.gbuffer_fbo.depth_texture, 3);
+			deferred_dir_shader->setUniform("u_depth_texture", gbuffer.gbuffer_fbo.depth_texture, 2);
 		}
 
-		// Pass only inverse_viewprojection_matrix
+		// Pass only inverse_viewprojection_matrix here as well
 		deferred_dir_shader->setUniform("u_inverse_viewprojection_matrix", camera->inverse_viewprojection_matrix);
 		deferred_dir_shader->setUniform3("u_camera_position", camera->eye.x, camera->eye.y, camera->eye.z);
 		deferred_dir_shader->setUniform2("u_inv_screen_size", inv_screen_size.x, inv_screen_size.y);
@@ -452,6 +436,12 @@ void Renderer::compositeLightingToScreen() {
 	glDisable(GL_DEPTH_TEST); // No depth test for full-screen blit
 	glDisable(GL_BLEND);      // Direct copy, no blending (or use GL_ONE, GL_ZERO if needed)
 
+	// GFX::Shader* tex_shader = GFX::Shader::Get("texture");
+	// if (!tex_shader) {
+	// 	std::cerr << "Texture shader for composition not found!" << std::endl;
+	// 	return;
+	// }
+
     GFX::Shader* tonemapper_shader = GFX::Shader::Get("tonemapper");
     if (!tonemapper_shader) {
         std::cerr << "Tonemapper shader not found!" << std::endl;
@@ -474,6 +464,8 @@ void Renderer::compositeLightingToScreen() {
 }
 
 void Renderer::renderTransparentPass(Camera* camera, const std::vector<sDrawCommand>& transparent_commands, const std::vector<SCN::LightEntity*>& lights) {
+	// ... (transparent pass as before, ensuring it renders to the main framebuffer) ...
+	// Important: ensure depth test is re-enabled and blend func is for transparency
 	GFX::Shader* phong_shader = GFX::Shader::Get("phong");
 	if (!phong_shader) {
 		std::cerr << "Phong shader for transparents not found!" << std::endl;
@@ -486,7 +478,7 @@ void Renderer::renderTransparentPass(Camera* camera, const std::vector<sDrawComm
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	glEnable(GL_DEPTH_TEST); // Re-enable depth test
-	glDepthMask(GL_TRUE);    // Allow writing to depth buffer for transparents
+	glDepthMask(GL_TRUE);    // Allow writing to depth buffer for transparents (can be tricky)
 	glDepthFunc(GL_LESS);    // Standard depth test
 
 	uploadLights(phong_shader, lights);
@@ -533,6 +525,8 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 	renderGBufferPass(camera, opaque_commands);
 	GFX::checkGLErrors();
 
+	// Main framebuffer is implicitly active after gbuffer.unbind()
+	// Clear main framebuffer (color will be overwritten by composite, depth might be used by transparents)
 	glViewport(0, 0, static_cast<GLsizei>(CORE::getWindowSize().x), static_cast<GLsizei>(CORE::getWindowSize().y));
 	glClearColor(scene_ptr->background_color.x, scene_ptr->background_color.y, scene_ptr->background_color.z, 1.0f); // Clear to background for areas not covered by lighting pass result.
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear both color and depth
@@ -542,6 +536,9 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 	GFX::checkGLErrors();
 
 	compositeLightingToScreen(); // Blits lighting_fbo result to main screen
+	GFX::checkGLErrors();
+
+	renderTransparentPass(camera, transparent_commands, local_light_list); // Renders to main screen
 	GFX::checkGLErrors();
 
     if (this->use_bloom) {
@@ -607,6 +604,7 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 		bloom_shader->setUniform("_Filter", filter);
 		bloom_shader->setUniform("u_intensity", bloom_intensity);
         bloom_samples[0]->bind();
+        //glViewport(0, 0, bloom_samples[0]->width, bloom_samples[0]->height);
         glClear(GL_COLOR_BUFFER_BIT);
         GFX::Mesh::getQuad()->render(GL_TRIANGLES);
         bloom_samples[0]->unbind();
@@ -617,6 +615,7 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
         blur_shader->enable();
         for (int i = 1; i < this->bloom_iterations; ++i) {
             bloom_samples[i]->bind();
+            //glViewport(0, 0, bloom_samples[i]->width, bloom_samples[i]->height);
             blur_shader->setUniform("u_raw", bloom_samples[i - 1]->color_textures[0], 0);
             blur_shader->setUniform("u_invRes", vec2(1.0f / static_cast<float>(bloom_samples[i - 1]->width),
                                                     1.0f / static_cast<float>(bloom_samples[i - 1]->height)));
@@ -630,13 +629,15 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
         // 4) Upsample and blend additively
         blur_shader->enable();
         glEnable(GL_BLEND);
-        glBlendFunc(GL_ONE, GL_ONE); // Additive blend
+        glBlendFunc(GL_ONE, GL_ONE); // Additive blend as per tutorial
         for (int i = this->bloom_iterations - 2; i >= 0; --i) {
             bloom_samples[i]->bind();
+            //glViewport(0, 0, bloom_samples[i]->width, bloom_samples[i]->height);
             blur_shader->setUniform("u_raw", bloom_samples[i + 1]->color_textures[0], 0);
             blur_shader->setUniform("u_invRes", vec2(1.0f / static_cast<float>(bloom_samples[i + 1]->width),
                                                     1.0f / static_cast<float>(bloom_samples[i + 1]->height)));
             blur_shader->setUniform("u_intensity", bloom_intensity);
+            //glClear(GL_COLOR_BUFFER_BIT);
             GFX::Mesh::getQuad()->render(GL_TRIANGLES);
             bloom_samples[i]->unbind();
         }
@@ -646,12 +647,14 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
         // 5) Blend final bloom to lighting_fbo
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE); // Additive blending
+        //lighting_fbo.bind();
         bloom_samples[0]->color_textures[0]->toViewport();
+        //lighting_fbo.unbind();
         glDisable(GL_BLEND);
     }
 
-	renderTransparentPass(camera, transparent_commands, local_light_list);
-	GFX::checkGLErrors();
+	return;
+
 }
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
@@ -683,6 +686,8 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 	shader->setUniform("u_model", m);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform3("u_camera_position", camera->eye.x, camera->eye.y, camera->eye.z);
+
+	// This is the call that currently triggers the assertion
 	shader->setUniform("u_texture", cubemap, 0);
 
 	if (sphere.getNumVertices() > 0) sphere.render(GL_TRIANGLES);
