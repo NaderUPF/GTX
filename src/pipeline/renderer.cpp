@@ -535,6 +535,11 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 	renderDeferredLightingPass(camera, local_light_list); // Renders into lighting_fbo
 	GFX::checkGLErrors();
 
+	compositeLightingToScreen(); // Blits lighting_fbo result to main screen
+	GFX::checkGLErrors();
+
+	renderTransparentPass(camera, transparent_commands, local_light_list); // Renders to main screen
+	GFX::checkGLErrors();
 
     if (this->use_bloom) {
 
@@ -650,12 +655,6 @@ void Renderer::renderScene(SCN::Scene* scene_ptr, Camera* camera)
 
 	return;
 
-	//lighting_fbo.color_textures[0]->toViewport();
-	compositeLightingToScreen(); // Blits lighting_fbo result to main screen
-	GFX::checkGLErrors();
-
-	renderTransparentPass(camera, transparent_commands, local_light_list); // Renders to main screen
-	GFX::checkGLErrors();
 }
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
