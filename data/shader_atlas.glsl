@@ -1,9 +1,3 @@
-// shader_atlas.glsl
-
-// ---------------------------------------------
-// Vertex Shaders
-// ---------------------------------------------
-
 // basic.vs
 // Used in multiple passes: G-Buffer fill, phong forward, light volumes
 // A1: Used for rendering geometry with proper model/viewprojection transformations
@@ -27,14 +21,14 @@ gbuffer_fill basic.vs gbuffer_fill.fs
 // DEFERRED LIGHTING SHADER (used for directional lights with quad.vs, and point/spot with basic.vs)
 deferred_lighting quad.vs deferred_lighting.fs
 
-// NEW SHADER PROGRAM FOR POINT/SPOT LIGHT VOLUMES
+// FOR POINT/SPOT LIGHT VOLUMES
 light_volume_deferred basic.vs deferred_lighting.fs
 
 // A5: TASK 2.2 - Add PBR G-Buffer and deferred lighting shaders
 pbr_gbuffer_fill basic.vs pbr_gbuffer_fill.fs
 pbr_deferred_lighting quad.vs pbr_deferred_lighting.fs
 
-// HDR
+//HDR
 tonemapper quad.vs tonemapper.fs
 
 //BLOOM
@@ -409,8 +403,6 @@ void main()
 
 	out_gbuffer_albedo = final_color;
 	out_gbuffer_normal = vec4(normalize(v_normal), 1.0);
-
-	// Note: Roughness, metallic, and AO can be packed in other targets or alpha channels if needed
 }
 
 \deferred_lighting.fs
@@ -460,7 +452,6 @@ void main()
     vec2 xy = uv * 2.0 - 1.0;
     vec4 clip_space_pos = vec4(xy, z, 1.0);
 
-    // Use combined inverse viewprojection matrix
     vec4 world_space_pos = u_inverse_viewprojection_matrix * clip_space_pos;
     world_space_pos /= world_space_pos.w;
     vec3 pos = world_space_pos.xyz;
@@ -747,8 +738,6 @@ void main() {
 in vec2 v_uv;
 
 uniform sampler2D u_render;
-// uniform float u_threshold;
-// uniform vec2 u_invRes;
 uniform vec4 _Filter;  // x = threshold, y = threshold - knee, z = 2 * knee, w = 0.25 / (knee + 0.00001)
 
 out vec4 FragColor;
